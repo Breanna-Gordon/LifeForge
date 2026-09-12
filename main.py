@@ -1,3 +1,4 @@
+import asyncio
 import pygame
 import sys
 import random
@@ -139,7 +140,7 @@ def draw_game_screen(screen, player_name, gender, age, stats,
     draw_text(screen, "Click an option to continue. Press ESC to quit.",
               small_font, DARK_GREY, SCREEN_WIDTH // 2, 570, centre=True)
 
-def game_over(screen, age, failed_stat):
+async def game_over(screen, age, failed_stat):
     clock = pygame.time.Clock()
 
     while True:
@@ -165,8 +166,9 @@ def game_over(screen, age, failed_stat):
 
         pygame.display.flip()
         clock.tick(60)
+        await asyncio.sleep(0)
 
-def instructions_screen(screen):
+async def instructions_screen(screen):
     clock = pygame.time.Clock()
 
     while True:
@@ -201,8 +203,9 @@ def instructions_screen(screen):
 
         pygame.display.flip()
         clock.tick(60)
+        await asyncio.sleep(0)
 
-def menu_screen(screen):
+async def menu_screen(screen):
     background = load_image("images/menu_background.jpg",
                              (SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
@@ -229,7 +232,7 @@ def menu_screen(screen):
                         if label == "Start":
                             return "start"
                         if label == "Instructions":
-                            instructions_screen(screen)
+                            await instructions_screen(screen)
                         if label == "Exit":
                             pygame.quit()
                             raise SystemExit
@@ -250,9 +253,10 @@ def menu_screen(screen):
 
         pygame.display.flip()
         clock.tick(60)
+        await asyncio.sleep(0)
 
-def run_game(screen):
-    gender, player_name = character_selection_screen(screen)
+async def run_game(screen):
+    gender, player_name = await character_selection_screen(screen)
 
     if gender is None:
         return
@@ -336,25 +340,26 @@ def run_game(screen):
             )
             pygame.display.flip()
             clock.tick(60)
+            await asyncio.sleep(0)
 
         apply_yearly_decline(stats, age)
 
         failed_stat = next((stat for stat, value in stats.items() if value <= 0), None)
         if failed_stat:
-            game_over(screen, age, failed_stat)
+            await game_over(screen, age, failed_stat)
             return
 
         age += 1
 
-def main():
+async def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("LifeForge")
 
     while True:
-        action = menu_screen(screen)
+        action = await menu_screen(screen)
         if action == "start":
-            run_game(screen)
+            await run_game(screen)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

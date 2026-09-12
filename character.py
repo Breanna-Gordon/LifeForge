@@ -1,3 +1,4 @@
+import asyncio
 import pygame
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, WHITE, BLACK, LIGHT_GREY,
@@ -13,7 +14,7 @@ def load_image(path, size=None):
     except (pygame.error, FileNotFoundError):
         return None
 
-def character_selection_screen(screen):
+async def character_selection_screen(screen):
     background = load_image("images/selection_background.jpg", (SCREEN_WIDTH, SCREEN_HEIGHT))
     male_image = load_image("images/male_image.jpg", (180, 180))
     female_image = load_image("images/female_image.jpg", (180, 180))
@@ -86,3 +87,4 @@ def character_selection_screen(screen):
 
         pygame.display.flip()
         clock.tick(60)
+        await asyncio.sleep(0)
