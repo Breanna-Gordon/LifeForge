@@ -32,6 +32,7 @@ STAT_COLORS = {
     "wealth":   (230, 180, 60),
     "mental":   (90, 140, 230),
     "social":   (160, 100, 220),
+    "academic": (70, 170, 150),
 }
 
 # Default hair colour before the player touches the colour wheel — hair
