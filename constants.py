@@ -33,7 +33,16 @@ STAT_COLORS = {
     "mental":   (90, 140, 230),
     "social":   (160, 100, 220),
     "academic": (70, 170, 150),
+    "looks":    (236, 130, 178),
+    "athletic": (80, 190, 210),
 }
+
+STAT_ORDER = ["physical", "mental", "social", "academic", "looks", "athletic", "wealth"]
+# Running any of these to 0 ends the game. Academic, looks and athletic
+# can bottom out without killing you.
+VITAL_STATS = ["physical", "mental", "social", "wealth"]
+STAT_LABELS = {"physical": "Health", "mental": "Mental", "social": "Social", "academic": "Academic",
+               "looks": "Looks", "athletic": "Athletic", "wealth": "Wealth"}
 
 # Default hair colour before the player touches the colour wheel — hair
 # colour itself is now freely pickable, not limited to a fixed swatch list.

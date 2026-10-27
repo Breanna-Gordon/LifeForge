@@ -1,4 +1,5 @@
 import asyncio
+from avatar import draw_avatar
 import colorsys
 import math
 import pygame
@@ -53,125 +54,6 @@ def pick_color_from_wheel(local_x, local_y, diameter):
     r, g, b = colorsys.hsv_to_rgb(hue, sat, 0.95)
     return (int(r * 255), int(g * 255), int(b * 255)), (local_x, local_y)
 
-def draw_avatar(screen, rect, gender, hair_colour, hairstyle, skin_tone, facial_hair="None"):
-    """Draws a simple procedural avatar within `rect` — no image files
-    needed, so it can never silently fail to load in a browser build."""
-    cx = rect.centerx
-    cy = rect.y + int(rect.height * 0.4)
-    head_radius = int(rect.width * 0.26)
-
-    collar_colour = COLLAR_COLORS.get(gender, (130, 130, 140))
-    shoulder_rect = pygame.Rect(0, 0, int(rect.width * 0.85), int(rect.height * 0.45))
-    shoulder_rect.midtop = (cx, cy + head_radius - 8)
-    pygame.draw.ellipse(screen, collar_colour, shoulder_rect)
-
-    pygame.draw.circle(screen, skin_tone, (cx, cy), head_radius)
-    pygame.draw.circle(screen, BLACK, (cx, cy), head_radius, 2)
-
-    if gender == "Male":
-        draw_facial_hair(screen, cx, cy, head_radius, hair_colour, facial_hair)
-
-    eye_dx = head_radius // 3
-    eye_y = cy - head_radius // 6
-    pygame.draw.circle(screen, BLACK, (cx - eye_dx, eye_y), 3)
-    pygame.draw.circle(screen, BLACK, (cx + eye_dx, eye_y), 3)
-
-    smile_rect = pygame.Rect(0, 0, head_radius, head_radius // 2)
-    smile_rect.center = (cx, cy + head_radius // 5)
-    pygame.draw.arc(screen, BLACK, smile_rect, 3.5, 6.0, 2)
-
-    draw_hair(screen, cx, cy, head_radius, hair_colour, hairstyle)
-
-def draw_facial_hair(screen, cx, cy, r, colour, style):
-    if style == "None":
-        return
-
-    jaw_rect = pygame.Rect(cx - r, cy - r, r * 2, r * 2)
-
-    if style == "Stubble":
-        pygame.draw.arc(screen, colour, jaw_rect, 3.3, 6.12, max(int(r * 0.12), 3))
-    elif style == "Beard":
-        pygame.draw.arc(screen, colour, jaw_rect, 3.3, 6.12, max(int(r * 0.4), 10))
-    elif style == "Moustache":
-        rect = pygame.Rect(0, 0, int(r * 0.7), int(r * 0.22))
-        rect.center = (cx, cy + int(r * 0.28))
-        pygame.draw.ellipse(screen, colour, rect)
-
-def draw_hair_cap(screen, cx, cy, r, colour, coverage):
-    """Draws a hair cap that hugs the head's own curvature rather than a
-    separately-shaped ellipse, so it can't balloon into a helmet shape.
-    `coverage` is how far down from the very top of the head it extends —
-    0 is nothing, 1 would reach all the way to the head's centre."""
-    cap_radius = int(r * 1.04)
-    clip_rect = pygame.Rect(cx - cap_radius, cy - cap_radius,
-                            cap_radius * 2, max(int(cap_radius * coverage), 1))
-    old_clip = screen.get_clip()
-    screen.set_clip(clip_rect)
-    pygame.draw.circle(screen, colour, (cx, cy), cap_radius)
-    screen.set_clip(old_clip)
-
-def draw_hair(screen, cx, cy, r, colour, style):
-    if style == "Bald":
-        return
-
-    if style == "Buzzcut":
-        draw_hair_cap(screen, cx, cy, r, colour, coverage=0.14)
-
-    elif style == "Short":
-        draw_hair_cap(screen, cx, cy, r, colour, coverage=0.32)
-
-    elif style == "Long":
-        draw_hair_cap(screen, cx, cy, r, colour, coverage=0.32)
-        side_w = max(int(r * 0.24), 8)
-        left_rect = pygame.Rect(cx - r - side_w + 4, cy - int(r * 0.1), side_w, int(r * 1.6))
-        right_rect = pygame.Rect(cx + r - 4, cy - int(r * 0.1), side_w, int(r * 1.6))
-        pygame.draw.rect(screen, colour, left_rect, border_radius=side_w // 2)
-        pygame.draw.rect(screen, colour, right_rect, border_radius=side_w // 2)
-
-    elif style == "Ponytail":
-        draw_hair_cap(screen, cx, cy, r, colour, coverage=0.32)
-        tail_points = [
-            (cx + int(r * 0.7), cy - int(r * 0.55)),
-            (cx + int(r * 1.0), cy + int(r * 0.1)),
-            (cx + int(r * 0.8), cy + int(r * 1.4)),
-            (cx + int(r * 0.5), cy + int(r * 1.35)),
-            (cx + int(r * 0.5), cy + int(r * 0.15)),
-        ]
-        pygame.draw.polygon(screen, colour, tail_points)
-
-    elif style == "Spiky":
-        spikes = 6
-        for i in range(spikes):
-            t = i / (spikes - 1)
-            angle = math.pi * (0.15 + 0.7 * t)
-            base_x = cx + int(r * 0.9 * math.cos(math.pi - angle))
-            base_y = cy - int(r * 0.9 * math.sin(angle))
-            tip_x = cx + int(r * 1.5 * math.cos(math.pi - angle))
-            tip_y = cy - int(r * 1.5 * math.sin(angle))
-            pygame.draw.polygon(screen, colour, [
-                (base_x - 6, base_y), (base_x + 6, base_y), (tip_x, tip_y)
-            ])
-
-    elif style == "Mohawk":
-        spikes = 5
-        for i in range(spikes):
-            t = i / (spikes - 1)
-            x = cx - int(r * 0.5) + int(r * t)
-            base_y = cy - int(r * 0.85)
-            tip_y = base_y - int(r * 0.55)
-            pygame.draw.polygon(screen, colour, [
-                (x - 6, base_y), (x + 6, base_y), (x, tip_y)
-            ])
-
-    elif style == "Curly":
-        bumps = 7
-        for i in range(bumps):
-            t = i / (bumps - 1)
-            angle = math.pi * (0.1 + 0.8 * t)
-            bx = cx + int(r * 0.95 * math.cos(math.pi - angle))
-            by = cy - int(r * 0.95 * math.sin(angle))
-            pygame.draw.circle(screen, colour, (bx, by), int(r * 0.28))
-
 async def character_selection_screen(screen):
     background = load_image("images/selection_background.jpg", (SCREEN_WIDTH, SCREEN_HEIGHT))
     fallback_bg = make_vertical_gradient(SCREEN_WIDTH, SCREEN_HEIGHT,
@@ -186,7 +68,7 @@ async def character_selection_screen(screen):
     clock = pygame.time.Clock()
 
     name_box = pygame.Rect(300, 60, 300, 34)
-    avatar_rect = pygame.Rect(390, 102, 120, 120)
+    avatar_rect = pygame.Rect(385, 98, 130, 130)
 
     male_rect = pygame.Rect(330, 230, 110, 32)
     female_rect = pygame.Rect(460, 230, 110, 32)
