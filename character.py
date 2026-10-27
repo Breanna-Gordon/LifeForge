@@ -65,6 +65,8 @@ async def character_selection_screen(screen):
     hair_colour = DEFAULT_HAIR_COLOUR
     hairstyle_index = 2  # "Short"
     facial_hair_index = 0  # "None"
+    orient_index = 2  # Everyone
+    ORIENTS = [("Men", "Men"), ("Women", "Women"), ("Everyone", "Both")]
     clock = pygame.time.Clock()
 
     name_box = pygame.Rect(300, 60, 300, 34)
@@ -100,7 +102,10 @@ async def character_selection_screen(screen):
     facial_y = 554
     facial_height = 26
 
-    continue_rect = pygame.Rect(325, 596, 250, 44)
+    orient_y = 604
+    orient_w = 130
+    orient_start_x = (SCREEN_WIDTH - (3 * orient_w + 2 * 14)) // 2
+    continue_rect = pygame.Rect(325, 642, 250, 40)
 
     def style_rect(index):
         row = index // style_cols
@@ -112,7 +117,7 @@ async def character_selection_screen(screen):
     def current_selection():
         facial = FACIAL_HAIR_STYLES[facial_hair_index] if gender == "Male" else "None"
         return (gender, name.strip(), hair_colour,
-                HAIRSTYLES[hairstyle_index], SKIN_TONES[skin_index], facial)
+                HAIRSTYLES[hairstyle_index], SKIN_TONES[skin_index], facial, ORIENTS[orient_index][1])
 
     while True:
         for event in pygame.event.get():
@@ -122,7 +127,7 @@ async def character_selection_screen(screen):
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    return None, None, None, None, None, None
+                    return None, None, None, None, None, None, None
                 if event.key == pygame.K_BACKSPACE:
                     name = name[:-1]
                 elif event.key == pygame.K_RETURN and name.strip() and gender:
@@ -158,6 +163,10 @@ async def character_selection_screen(screen):
                         rect = pygame.Rect(bx, facial_y, facial_button_width, facial_height)
                         if rect.collidepoint(mx, my):
                             facial_hair_index = i
+
+                for i in range(3):
+                    if pygame.Rect(orient_start_x + i * (orient_w + 14), orient_y, orient_w, 26).collidepoint(mx, my):
+                        orient_index = i
 
                 if continue_rect.collidepoint(mx, my) and name.strip() and gender:
                     return current_selection()
@@ -232,6 +241,15 @@ async def character_selection_screen(screen):
                 pygame.draw.rect(screen, BLACK, rect, 2, border_radius=8)
                 draw_text(screen, style, small_font, BLACK, rect.centerx, rect.centery, centre=True)
 
+        draw_text(screen, "Attracted to", small_font, DARK_GREY, SCREEN_WIDTH // 2, orient_y - 16, centre=True)
+        for i, (label, _v) in enumerate(ORIENTS):
+            rect = pygame.Rect(orient_start_x + i * (orient_w + 14), orient_y, orient_w, 26)
+            selected = i == orient_index
+            fill_colour = ACCENT if selected else (LIGHT_GREY if not rect.collidepoint(mouse_pos) else (235, 235, 240))
+            draw_rounded_rect(screen, fill_colour, rect, radius=8)
+            pygame.draw.rect(screen, BLACK, rect, 2, border_radius=8)
+            draw_text(screen, label, small_font, BLACK, rect.centerx, rect.centery, centre=True)
+
         enabled = bool(name.strip() and gender)
         continue_hovered = continue_rect.collidepoint(mouse_pos)
         fill_colour = (ACCENT if continue_hovered else GREEN) if enabled else LIGHT_GREY
@@ -240,7 +258,7 @@ async def character_selection_screen(screen):
         draw_text(screen, "Continue", font, BLACK, continue_rect.centerx, continue_rect.centery, centre=True)
 
         draw_text(screen, "Press ESC to return to the menu.",
-                  small_font, DARK_GREY, SCREEN_WIDTH // 2, 660, centre=True)
+                  small_font, DARK_GREY, SCREEN_WIDTH // 2, 690, centre=True)
 
         pygame.display.flip()
         clock.tick(60)

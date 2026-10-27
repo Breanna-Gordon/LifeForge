@@ -11,7 +11,42 @@ def _friends(c): return len(c["friends"]) > 0
 def _broke(c): return c["money"] < 40
 def _comfortable(c): return c["money"] >= 150
 
+def _no_job(c): return c["career"]["job"] is None
+def _not_uni(c): return not c["career"]["enrolled"]
+def _has_child(c): return any(p.get("is_child") for p in c.get("people", []))
+def _has_sibling(c): return any("Sibling" in p["relation"] for p in c.get("people", []))
+def _unpartnered_married(c): return c["partner"] is not None and not c["partner"].get("married")
+
+# Normal-pool events that only make sense in certain situations, so you are
+# never asked to take overtime without a job, or to commit to a partner
+# you don't have. Anything not listed here can appear for everyone.
+REQUIRES = {
+    "Your workplace offers overtime.": _job,
+    "You are considering changing careers.": _job,
+    "You're offered a leadership role at work.": _job,
+    "You are offered a weekend job.": _no_job,
+    "You receive an offer for further education.": lambda c: _not_uni(c) and c["career"].get("education") != "PhD",
+    "You have saved enough for a major purchase.": lambda c: c["money"] >= 100,
+    "A relationship starts to get serious.": _unpartnered_married,
+    "A sibling wants to swap toys.": _has_sibling,
+    "You're asked to share your life story with grandchildren.": _has_child,
+    "Friends invite you to a party.": _friends,
+    "Friends want to go on a short trip.": _friends,
+    "You are invited to exercise with friends.": _friends,
+    "You get into an argument with a friend.": _friends,
+    "Your friend asks you to play outside.": _friends,
+    "You have the chance to mentor someone younger.": lambda c: _job(c) or _friends(c),
+}
+
 SITUATIONAL = [
+    {"text": "You spend weeks scrolling job listings.", "min": 18, "max": 64, "cond": _no_job,
+     "options": {"Apply everywhere": {"mental": -2, "academic": 1, "money": -5}, "Take a break from it": {"mental": 2}}},
+    {"text": "A relative offers to help you find work.", "min": 18, "max": 64, "cond": _no_job,
+     "options": {"Accept the help": {"social": 1, "mental": 1, "wealth": 1}, "Do it on your own": {"mental": 1}}},
+    {"text": "Your parents offer you a little extra pocket money.", "min": 5, "max": 17, "cond": lambda c: True,
+     "options": {"Save it": {"money": 8, "wealth": 1}, "Spend it on sweets": {"mental": 2}}},
+    {"text": "You spot a cheap local class advertised on a noticeboard.", "min": 10, "max": 99, "cond": lambda c: True,
+     "options": {"Sign up": {"academic": 2, "social": 1, "money": -10}, "Walk past": {"mental": 0}}},
     {"text": "Your boss offers you a project nobody else wants.", "min": 18, "max": 70, "cond": _job,
      "options": {"Take it on": {"wealth": 3, "mental": -3, "money": 20}, "Politely refuse": {"mental": 1, "social": -1}}},
     {"text": "A coworker takes credit for your work.", "min": 18, "max": 70, "cond": _job,
@@ -151,6 +186,8 @@ def pick_year_events(age, ctx, normal_pool, wildcard_pool, last_text, extra_chan
     use_wild = bool(wildcard_pool) and random.random() < 0.15
     pool = wildcard_pool if use_wild else normal_pool
     cands = list(pool.items())
+    fits = [c for c in cands if REQUIRES.get(c[0], lambda _c: True)(ctx)]
+    cands = fits or cands
     if len(cands) > 1 and last_text:
         f = [c for c in cands if c[0] != last_text]
         cands = f or cands

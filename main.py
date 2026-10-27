@@ -10,7 +10,8 @@ from constants import (
     lerp, make_vertical_gradient
 )
 from choices import choice_events, special_events
-from people import (generate_family, draw_people_tab, handle_people_click, make_person, advance_relationships,
+from people import (ensure_profiles, advance_deaths, ask_for_money, draw_profile, handle_profile_click, is_attracted,
+                    gender_word, remember, generate_family, draw_people_tab, handle_people_click, make_person, advance_relationships,
                     TRAITS, compatibility, make_child, children_of, PROPOSAL_COST, CHILD_COST)
 from education import draw_education_tab, handle_education_click
 from career import draw_career_tab, handle_career_click, advance_career_year
@@ -25,6 +26,18 @@ SKIP_YEARS = 5
 MILESTONE_AGES = (7, 13, 16, 18, 21, 30, 65)
 CONTENT_RECT = pygame.Rect(200, 320, 675, 320)
 ACTIONS_PER_YEAR = 5
+
+# Every life gets a random aspiration. Reach it and you get a Mental boost
+# and a bonus to your final life score.
+ASPIRATIONS = {
+    "Wealthy":      ("have $500 or more",              lambda s, c, f, p, pe: s["money"] >= 500),
+    "Family-minded": ("raise two or more children",    lambda s, c, f, p, pe: len([x for x in pe if x.get("is_child")]) >= 2),
+    "Scholar":      ("reach Academic 80",              lambda s, c, f, p, pe: s["stats"]["academic"] >= 80),
+    "Athlete":      ("reach Athletic 80",              lambda s, c, f, p, pe: s["stats"]["athletic"] >= 80),
+    "Social butterfly": ("have 4 friends and Social 70", lambda s, c, f, p, pe: len(f) >= 4 and s["stats"]["social"] >= 70),
+    "Soulmate":     ("get married",                    lambda s, c, f, p, pe: bool(p and p.get("married"))),
+    "Performer":    ("master a music or dance skill (level 4)", lambda s, c, f, p, pe: any(s.get("skills", {}).get(k, 0) >= 4 for k in ("singing", "music", "dance"))),
+}
 
 def get_age_stage(age):
     if age < 7:
@@ -493,7 +506,7 @@ async def run_game(screen, resume=None):
         skin_tone, facial_hair = tuple(resume["skin_tone"]), resume["facial_hair"]
         stats = resume["stats"]
     else:
-        gender, player_name, hair_colour, hairstyle, skin_tone, facial_hair = await character_selection_screen(screen)
+        gender, player_name, hair_colour, hairstyle, skin_tone, facial_hair, orientation = await character_selection_screen(screen)
         if gender is None:
             return
         stats, player_traits = await stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle, skin_tone, facial_hair)
@@ -524,7 +537,7 @@ async def run_game(screen, resume=None):
         state["bought_this_year"] = set()
         state["actions_used"] = {}
     else:
-        people = generate_family()
+        people = generate_family(skin_tone, hair_colour)
         friends = []
         partner = None
         career = {"education": "None", "enrolled": False, "uni_target": None, "uni_years_done": 0,
@@ -543,16 +556,36 @@ async def run_game(screen, resume=None):
             "activities": {},
             "scholarship": False,
             "player_traits": player_traits,
+            "gender": gender,
+            "attracted": orientation,
+            "skills": {},
+            "aspiration": random.choice(list(ASPIRATIONS)),
+            "aspiration_done": False,
         }
         log(state, f"{player_name} was born. Personality: {', '.join(player_traits)}.")
+        log(state, f"Aspiration: {state['aspiration']} ({ASPIRATIONS[state['aspiration']][0]}).")
+
+    state.setdefault("gender", gender)
+    state.setdefault("attracted", "Both")
+    state.setdefault("skills", {})
+    state.setdefault("aspiration", "Wealthy")
+    state.setdefault("aspiration_done", False)
+    ensure_profiles(people + friends + ([partner] if partner else []), resume["age"] if resume else 0)
+
+    def near_age(age_now):
+        if age_now < 18:
+            return max(3, age_now + random.randint(-1, 1))
+        return max(18, age_now + random.randint(-8, 8))
 
     def make_friend():
-        p = make_person("Friend", "friend")
+        p = make_person("Friend", "friend", age=near_age(state["age"]))
         friends.append(p)
         return p
 
     active_tab = "Life"
     people_scroll = 0
+    profile_person = None
+    profile_note = ""
     journal_scroll = 0
     panel_open = False
     last_regions = {"toggle": pygame.Rect(0, 0, 0, 0), "tabs": {}, "age_up": pygame.Rect(0, 0, 0, 0),
@@ -618,14 +651,17 @@ async def run_game(screen, resume=None):
 
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
+                        if profile_person is not None:
+                            profile_person = None
+                            continue
                         return
-                    if event.key == pygame.K_SPACE:
+                    if event.key == pygame.K_SPACE and profile_person is None:
                         waiting = False
 
                 if event.type == pygame.MOUSEWHEEL:
                     if active_tab == "Journal":
                         journal_scroll -= event.y
-                    elif active_tab == "People":
+                    elif active_tab == "People" and profile_person is None:
                         people_scroll = max(0, people_scroll - event.y)
                     elif active_tab == "Career":
                         career["scroll"] = max(0, career.get("scroll", 0) - event.y)
@@ -652,6 +688,15 @@ async def run_game(screen, resume=None):
                         if clicked_tab:
                             active_tab = clicked_tab
                         panel_open = False
+                        continue
+
+                    if active_tab == "People" and profile_person is not None:
+                        outcome = handle_profile_click(mx, my, CONTENT_RECT, profile_person, state, age)
+                        if outcome == "back":
+                            profile_person = None
+                        elif outcome:
+                            profile_note = outcome
+                            log(state, outcome)
                         continue
 
                     if last_regions["age_up"].collidepoint(mx, my):
@@ -684,15 +729,28 @@ async def run_game(screen, resume=None):
                     elif active_tab == "People":
                         result = handle_people_click(mx, my, CONTENT_RECT, people, friends, partner,
                                                      people_scroll, state, age)
+                        if isinstance(result, tuple):
+                            if result[0] == "profile":
+                                profile_person, profile_note = result[1], ""
+                            elif result[0] == "ask":
+                                msg = ask_for_money(result[1], state, age)
+                                log(state, msg)
+                                profile_note = msg
+                            result = None
                         if result == "meet":
                             if len(friends) < 6:
                                 new_friend = make_friend()
                                 log(state, f"Made a new friend: {new_friend['name']}.")
                         elif result == "partner":
-                            cand = make_person("Partner", "partner", closeness=50)
+                            want = state.get("attracted", "Both")
+                            cg = "Male" if want == "Men" else "Female" if want == "Women" else random.choice(["Male", "Female"])
+                            cage = max(16 if age < 18 else 18, near_age(age))
+                            cand = make_person("Partner", "partner", cg, closeness=50, age=cage)
                             cand["compat"] = compatibility(state["player_traits"], cand["traits"])
                             chance = 0.2 + 0.5 * (stats["looks"] + stats["social"]) / 200 + (cand["compat"] - 50) / 200
-                            if random.random() < max(0.05, min(0.95, chance)):
+                            if not is_attracted(cand["attracted"], gender):
+                                log(state, f"Asked {cand['name']} out, but they weren't interested.")
+                            elif random.random() < max(0.05, min(0.95, chance)):
                                 partner = cand
                                 log(state, f"Started dating {partner['name']} ({partner['compat']}% match).")
                             else:
@@ -711,13 +769,15 @@ async def run_game(screen, resume=None):
                                 partner["closeness"] = max(0, partner["closeness"] - 10)
                                 log(state, f"Proposed to {partner['name']}, who wasn't ready.")
                         elif result == "baby" and partner:
-                            if random.random() < (0.5 if partner.get("married") else 0.35):
+                            same_sex = partner.get("gender") == gender
+                            if random.random() < (0.5 if partner.get("married") else 0.35) * (0.85 if same_sex else 1):
                                 kid = make_child(state["player_traits"] + partner["traits"])
+                                kid["look"]["skin"] = list(random.choice([skin_tone, tuple(partner["look"]["skin"])]))
                                 people.append(kid)
                                 stats["mental"] = min(100, stats["mental"] + 2)
-                                log(state, f"Welcomed {'son' if kid['relation'] == 'Son' else 'daughter'} {kid['name']}.")
+                                log(state, ("Adopted " if same_sex else "Welcomed ") + f"{'son' if kid['relation'] == 'Son' else 'daughter'} {kid['name']}.")
                             else:
-                                log(state, "Tried for a baby but no luck this year.")
+                                log(state, "The adoption didn't go through this year." if same_sex else "Tried for a baby but no luck this year.")
 
                     elif active_tab == "Education":
                         before = career["enrolled"]
@@ -764,8 +824,13 @@ async def run_game(screen, resume=None):
                     meet_label = "Meet Someone at School"
                 else:
                     meet_label = "Meet Someone New"
-                people_scroll = draw_people_tab(screen, CONTENT_RECT, people, friends, partner,
-                                                people_scroll, mouse_pos, state, age, meet_label)
+                if profile_person is not None:
+                    draw_profile(screen, CONTENT_RECT, profile_person, mouse_pos, state, age)
+                    if profile_note:
+                        draw_text(screen, profile_note, small_font, DARK_GREY, CONTENT_RECT.x + 190, CONTENT_RECT.bottom - 62)
+                else:
+                    people_scroll = draw_people_tab(screen, CONTENT_RECT, people, friends, partner,
+                                                    people_scroll, mouse_pos, state, age, meet_label)
             elif active_tab == "Education":
                 last_tab_buttons = draw_education_tab(screen, CONTENT_RECT, mouse_pos, age, state, career)
             elif active_tab == "Career":
@@ -803,6 +868,9 @@ async def run_game(screen, resume=None):
                 state["money"] = 0
                 stats["mental"] = max(0, stats["mental"] - 1)
                 log(state, "Money was tight raising your children.")
+        partner = advance_deaths(people, friends, partner, state, lambda t: log(state, t))
+        if profile_person is not None and profile_person not in people + friends + ([partner] if partner else []):
+            profile_person = None
         advance_career_year(career, state, age)
         if career["education"] != before_edu:
             subject = f" in {career['course']}" if career.get("course") else ""
@@ -810,6 +878,10 @@ async def run_game(screen, resume=None):
         # Wealth reflects your actual savings, so you can't "go broke" with cash in hand
         stats["wealth"] = max(stats["wealth"], min(100, state["money"] // 8))
         stats_history.append(dict(stats))
+        if not state.get("aspiration_done") and ASPIRATIONS[state["aspiration"]][1](state, career, friends, partner, people):
+            state["aspiration_done"] = True
+            stats["mental"] = min(100, stats["mental"] + 3)
+            log(state, f"Aspiration achieved: {state['aspiration']}!")
 
         reason = None
         failed_stat = next((s for s in VITAL_STATS if stats[s] <= 0), None)
@@ -822,13 +894,16 @@ async def run_game(screen, resume=None):
                 reason = "You passed away peacefully."
 
         if reason:
-            life_score = age * 5 + sum(stats.values()) + state["money"] // 10 + 10 * len(children_of(people))
+            life_score = (age * 5 + sum(stats.values()) + state["money"] // 10 + 10 * len(children_of(people))
+                          + (60 if state.get("aspiration_done") else 0))
             job = career["job"]["title"] if career["job"] else "none"
             edu = career["education"] + (f" ({career['course']})" if career.get("course") else "")
             summary = [f"Education: {edu}   Final job: {job}   Money: ${state['money']}",
                        f"Friends: {len(friends)}   Children: {len(children_of(people))}   "
                        + (f"Spouse: {partner['name']}" if partner and partner.get("married")
-                          else f"Partner: {partner['name'] if partner else 'none'}")]
+                          else f"Partner: {partner['name'] if partner else 'none'}"),
+                       f"Aspiration ({state['aspiration']}: {ASPIRATIONS[state['aspiration']][0]}): "
+                       + ("achieved!" if state.get("aspiration_done") else "not achieved")]
             delete_save()
             await game_over(screen, age, reason, stats_history, life_score, summary)
             return

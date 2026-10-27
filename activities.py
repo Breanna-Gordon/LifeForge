@@ -36,13 +36,75 @@ def tryout_chance(stats, act):
 def on_team(state):
     return any(BY_ID[i]["kind"] == "sport" for i in state["activities"])
 
+# Outings and lessons. Free ones cost an action but no money; paid lessons
+# build a skill (level shown on the card). Under 16, family pays half.
+OUTINGS = [
+    {"id": "walk",    "name": "Go for a walk",       "min": 3,  "max": 99, "cost": 0,  "fx": {"physical": 2, "mental": 1}},
+    {"id": "play",    "name": "Playground",          "min": 3,  "max": 12, "cost": 0,  "fx": {"physical": 1, "social": 2, "mental": 1}},
+    {"id": "library", "name": "Library visit",       "min": 5,  "max": 99, "cost": 0,  "fx": {"academic": 2, "mental": 1}},
+    {"id": "jog",     "name": "Go for a jog",        "min": 10, "max": 80, "cost": 0,  "fx": {"physical": 2, "athletic": 2}},
+    {"id": "busk",    "name": "Busk in the street",  "min": 12, "max": 99, "cost": 0,  "fx": {"social": 1}, "needs": ("singing", "music"), "earn": True},
+    {"id": "singing", "name": "Singing lessons",     "min": 5,  "max": 99, "cost": 30, "fx": {"mental": 2, "social": 1}, "skill": "singing"},
+    {"id": "music",   "name": "Music lessons",       "min": 6,  "max": 99, "cost": 40, "fx": {"mental": 2, "academic": 1}, "skill": "music"},
+    {"id": "dance",   "name": "Dance class",         "min": 5,  "max": 99, "cost": 30, "fx": {"physical": 1, "athletic": 1, "looks": 1}, "skill": "dance"},
+    {"id": "artcls",  "name": "Art class",           "min": 5,  "max": 99, "cost": 25, "fx": {"mental": 2, "looks": 0}, "skill": "art"},
+    {"id": "swim",    "name": "Swimming lessons",    "min": 4,  "max": 99, "cost": 25, "fx": {"athletic": 2, "physical": 2}, "skill": "swimming"},
+    {"id": "lang",    "name": "Language class",      "min": 10, "max": 99, "cost": 35, "fx": {"academic": 3, "social": 1}, "skill": "languages"},
+    {"id": "martial", "name": "Martial arts",        "min": 7,  "max": 80, "cost": 35, "fx": {"athletic": 2, "physical": 1, "mental": 1}, "skill": "martial arts"},
+    {"id": "yoga",    "name": "Yoga class",          "min": 14, "max": 99, "cost": 20, "fx": {"mental": 3, "physical": 1}, "skill": "yoga"},
+]
+OUT_BY_ID = {o["id"]: o for o in OUTINGS}
+
+def outing_cost(o, age):
+    return o["cost"] // 2 if age < 16 else o["cost"]
+
+def outing_visible(o, age, skills):
+    if not (o["min"] <= age <= o["max"]):
+        return False
+    return not o.get("needs") or any(skills.get(k, 0) >= 3 for k in o["needs"])
+
 def draw_activities_tab(screen, rect, mouse_pos, state, age):
-    items = available(age)
+    view = state.setdefault("act_view", "clubs")
+    skills = state.setdefault("skills", {})
     mine = state["activities"]
-    draw_text(screen, f"Clubs, societies and sports ({len(mine)}/{MAX_ACTIVITIES} joined)", font, BLACK, rect.x, rect.y)
+    views = {"clubs": pygame.Rect(rect.right - 330, rect.y - 2, 160, 24), "outings": pygame.Rect(rect.right - 164, rect.y - 2, 164, 24)}
+    for key, label in (("clubs", "Clubs & Sports"), ("outings", "Outings & Lessons")):
+        vr = views[key]
+        on = view == key
+        draw_rounded_rect(screen, ACCENT if on else (WHITE if not vr.collidepoint(mouse_pos) else (235, 235, 240)), vr, radius=8)
+        pygame.draw.rect(screen, BLACK, vr, 2, border_radius=8)
+        draw_text(screen, label, small_font, BLACK, vr.centerx, vr.centery, centre=True)
     cols, row_h = 2, 36
     col_w = (rect.width - 12) // cols
     hits = []
+    outs = []
+    if view == "outings":
+        draw_text(screen, f"Outings ({state['actions_remaining']} actions left)", font, BLACK, rect.x, rect.y)
+        items = [o for o in OUTINGS if outing_visible(o, age, skills)]
+        for n, o in enumerate(items):
+            col, row = n % cols, n // cols
+            r = pygame.Rect(rect.x + col * (col_w + 12), rect.y + 28 + row * (row_h + 3), col_w, row_h)
+            cost = outing_cost(o, age)
+            done = state["actions_used"].get("__out__" + o["id"], 0) >= 1
+            can = state["actions_remaining"] > 0 and not done and state["money"] >= cost
+            hovered = r.collidepoint(mouse_pos) and can
+            draw_rounded_rect(screen, ACCENT if hovered else (WHITE if can else LIGHT_GREY), r, radius=8)
+            pygame.draw.rect(screen, BLACK, r, 2, border_radius=8)
+            draw_text(screen, o["name"], small_font, BLACK, r.x + 10, r.y + 2)
+            if o.get("earn"):
+                sub = "Earn a little cash from your talent"
+            else:
+                sub = ", ".join(f"{k.title()} +{v}" for k, v in o["fx"].items() if v)
+                if o.get("skill") and skills.get(o["skill"]):
+                    sub += f"  ({o['skill'].title()} lvl {skills[o['skill']]})"
+            draw_text(screen, sub, small_font, DARK_GREY, r.x + 10, r.y + 18)
+            label = "Done" if done else ("Free" if cost == 0 else f"${cost}" + (" (half)" if age < 16 else ""))
+            draw_text(screen, label, small_font, GREEN if cost == 0 and not done else BLACK,
+                      r.right - 10 - small_font.size(label)[0], r.y + 2)
+            outs.append((o, r))
+        return {"acts": [], "views": views, "outs": outs}
+    items = available(age)
+    draw_text(screen, f"Clubs ({len(mine)}/{MAX_ACTIVITIES})", font, BLACK, rect.x, rect.y)
     for n, a in enumerate(items):
         col, row = n % cols, n // cols
         r = pygame.Rect(rect.x + col * (col_w + 12), rect.y + 28 + row * (row_h + 3), col_w, row_h)
@@ -70,10 +132,45 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age):
         hits.append((a, r))
     if state.get("scholarship"):
         msg = "Sports scholarship offer (easier university entry)"
-        draw_text(screen, msg, small_font, GREEN, rect.right - small_font.size(msg)[0], rect.y + 4)
-    return {"acts": hits}
+        draw_text(screen, msg, small_font, GREEN, rect.right - small_font.size(msg)[0], rect.bottom - 18)
+    return {"acts": hits, "views": views, "outs": []}
 
 def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, log):
+    for key, vr in buttons.get("views", {}).items():
+        if vr.collidepoint(mx, my):
+            state["act_view"] = key
+            return
+    skills = state.setdefault("skills", {})
+    for o, r in buttons.get("outs", []):
+        if not r.collidepoint(mx, my):
+            continue
+        cost = outing_cost(o, age)
+        flag = "__out__" + o["id"]
+        if state["actions_remaining"] <= 0 or state["actions_used"].get(flag, 0) >= 1 or state["money"] < cost:
+            return
+        state["actions_remaining"] -= 1
+        state["actions_used"][flag] = 1
+        state["money"] -= cost
+        stats = state["stats"]
+        for k, v in o["fx"].items():
+            stats[k] = max(0, min(100, stats[k] + v))
+        if o.get("earn"):
+            lvl = max(skills.get("singing", 0), skills.get("music", 0))
+            got = random.randint(6, 12) + 5 * lvl
+            state["money"] += got
+            log(f"Busked in the street and earned ${got}.")
+        elif o.get("skill"):
+            skills[o["skill"]] = skills.get(o["skill"], 0) + 1
+            log(f"{o['name']}: {o['skill'].title()} is now level {skills[o['skill']]}.")
+        else:
+            log(f"{o['name']}.")
+            if o["id"] in ("walk", "play") and friends and random.random() < 0.3:
+                f = random.choice(friends)
+                f["closeness"] = min(100, f["closeness"] + 3)
+            elif o["id"] == "play" and len(friends) < 6 and random.random() < 0.4:
+                nf = make_friend()
+                log(f"Made friends with {nf['name']} at the playground.")
+        return
     for a, r in buttons.get("acts", []):
         if not r.collidepoint(mx, my):
             continue
@@ -110,6 +207,9 @@ def advance_activities_year(state, log):
         state["activities"][aid] += 1
         for k, v in a["fx"].items():
             stats[k] = max(0, min(100, stats[k] + v))
+    for sk, lvl in state.get("skills", {}).items():
+        if lvl >= 3:     # a developed skill keeps lifting your spirits
+            stats["mental"] = min(100, stats["mental"] + 1)
     # a sports scholarship offer for strong players about to leave school
     if on_team(state) and stats["athletic"] >= 80 and 16 <= state["age"] <= 22 and not state.get("scholarship"):
         state["scholarship"] = True
