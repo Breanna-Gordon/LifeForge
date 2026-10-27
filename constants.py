@@ -85,6 +85,59 @@ def draw_text(screen, text, selected_font, colour, x, y, centre=False):
 def draw_rounded_rect(screen, colour, rect, radius=10, width=0):
     pygame.draw.rect(screen, colour, rect, width, border_radius=radius)
 
+# ---- shared look: soft cards, quiet outlines, dark-ink text ----
+INK = (40, 36, 58)
+MUTED = (104, 100, 124)
+OUTLINE = (160, 154, 186)
+
+_shadow_cache = {}
+
+def draw_shadow(screen, rect, radius=14, spread=8, strength=46):
+    """A soft drop shadow, cached per size."""
+    key = (rect.w, rect.h, radius, spread, strength)
+    surf = _shadow_cache.get(key)
+    if surf is None:
+        surf = pygame.Surface((rect.w + spread * 2, rect.h + spread * 2), pygame.SRCALPHA)
+        for i in range(spread, 0, -1):
+            a = int(strength * (1 - i / spread) ** 2) + 2
+            pygame.draw.rect(surf, (30, 20, 60, a), (spread - i, spread - i + 3, rect.w + i * 2, rect.h + i * 2), border_radius=radius + i)
+        if len(_shadow_cache) > 60:
+            _shadow_cache.clear()
+        _shadow_cache[key] = surf
+    screen.blit(surf, (rect.x - spread, rect.y - spread))
+
+def draw_card(screen, rect, fill=(255, 255, 255), radius=14, border=True, shadow=True, alpha=None):
+    rect = pygame.Rect(rect)
+    if shadow:
+        draw_shadow(screen, rect, radius)
+    if alpha is not None:
+        tmp = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(tmp, (*fill[:3], alpha), tmp.get_rect(), border_radius=radius)
+        screen.blit(tmp, rect.topleft)
+    else:
+        pygame.draw.rect(screen, fill, rect, border_radius=radius)
+    if border:
+        pygame.draw.rect(screen, (225, 220, 238), rect, 1, border_radius=radius)
+
+def draw_pill(screen, rect, label, fnt, mouse_pos=None, primary=False, disabled=False, selected=False):
+    """A friendly rounded button with a soft shadow and a hover lift."""
+    rect = pygame.Rect(rect)
+    hovered = bool(mouse_pos) and rect.collidepoint(mouse_pos) and not disabled
+    if hovered:
+        rect = rect.move(0, -2)
+    draw_shadow(screen, rect, rect.h // 2 if rect.h < 50 else 12, 5, 30)
+    if disabled:
+        fill, txt = (232, 230, 238), (150, 146, 166)
+    elif primary or selected:
+        fill, txt = ((255, 128, 48) if hovered else ACCENT), (255, 255, 255)
+    else:
+        fill, txt = ((255, 236, 218) if hovered else WHITE), INK
+    pygame.draw.rect(screen, fill, rect, border_radius=min(rect.h // 2, 14))
+    if not (primary or selected) and not disabled:
+        pygame.draw.rect(screen, (225, 220, 238), rect, 1, border_radius=min(rect.h // 2, 14))
+    draw_text(screen, label, fnt, txt, rect.centerx, rect.centery, centre=True)
+    return rect
+
 def lerp(a, b, t):
     return a + (b - a) * t
 

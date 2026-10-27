@@ -38,7 +38,31 @@ REQUIRES = {
     "You have the chance to mentor someone younger.": lambda c: _job(c) or _friends(c),
 }
 
+def _famous(c): return c["career"].get("fame", 0) >= 20
+def _pretty(c): return c["stats"]["looks"] >= 70
+
+def _enemies(c): return any(p["category"] == "enemy" for p in c.get("friends", []))
+
 SITUATIONAL = [
+    {"text": "A classmate keeps picking on you.", "min": 8, "max": 17, "cond": lambda c: True,
+     "options": {"Stand up to them": {"new_enemy": 1, "mental": 2, "social": 1}, "Tell a teacher": {"mental": 1, "social": -1},
+                 "Ignore it": {"mental": -2}}},
+    {"text": "A coworker resents how well you're doing.", "min": 18, "max": 65, "cond": _job,
+     "options": {"Confront them": {"new_enemy": 1, "mental": 1}, "Kill them with kindness": {"social": 1, "mental": -1}}},
+    {"text": "Someone online starts a feud with you.", "min": 14, "max": 99, "cond": _famous,
+     "options": {"Hit back": {"new_enemy": 1, "social": 1, "mental": -2}, "Stay above it": {"mental": 1}}},
+    {"text": "A fan recognises you in the street.", "min": 16, "max": 99, "cond": _famous,
+     "options": {"Take a selfie": {"social": 2, "mental": 1}, "Politely hurry on": {"mental": 0}}},
+    {"text": "Paparazzi are following you around.", "min": 16, "max": 99, "cond": _famous,
+     "options": {"Ignore them": {"mental": -2}, "Pose for the cameras": {"social": 1, "mental": -1, "money": 15}}},
+    {"text": "A magazine wants an exclusive interview.", "min": 16, "max": 99, "cond": _famous,
+     "options": {"Do it": {"money": 25, "social": 1, "mental": -1}, "Decline": {"mental": 1}}},
+    {"text": "Online trolls pile onto your latest post.", "min": 14, "max": 99, "cond": _famous,
+     "options": {"Fire back": {"mental": -3, "social": -1}, "Block and move on": {"mental": -1}}},
+    {"text": "Someone you've never met compliments your looks and asks to buy you a coffee.", "min": 16, "max": 70, "cond": _pretty,
+     "options": {"Accept": {"social": 3, "mental": 2, "money": -5}, "Smile and decline": {"mental": 1}}},
+    {"text": "A photographer asks to take your portrait for a local campaign.", "min": 16, "max": 45, "cond": _pretty,
+     "options": {"Say yes": {"money": 20, "social": 2, "mental": 1}, "Say no": {"mental": 0}}},
     {"text": "You spend weeks scrolling job listings.", "min": 18, "max": 64, "cond": _no_job,
      "options": {"Apply everywhere": {"mental": -2, "academic": 1, "money": -5}, "Take a break from it": {"mental": 2}}},
     {"text": "A relative offers to help you find work.", "min": 18, "max": 64, "cond": _no_job,
@@ -149,6 +173,13 @@ def relationship_events(ctx):
             out.append((f"{n} gets jealous about the time you spend with friends.", {
                 "Reassure them": {"person": (p, {"trust": 5, "romance": 3}), "social": -1},
                 "Tell them it's fine": {"person": (p, {"trust": -4, "conflict": 10}), "mental": 0}}))
+    for p in ctx.get("friends", []):
+        if p["category"] == "enemy":
+            n = p["name"]
+            out.append((f"{n} is spreading rumours about you.", {
+                "Confront them": {"person": (p, {"conflict": 10, "closeness": 0}), "mental": 1, "social": 1},
+                "Try to make peace": {"person": (p, {"conflict": -20, "trust": 3}), "mental": 0},
+                "Ignore it": {"social": -3, "mental": -2}}))
     for c in [x for x in ctx.get("people", []) if x.get("is_child")]:
         n, a = c["name"], c.get("age", 0)
         if a <= 4:
@@ -211,6 +242,11 @@ def describe(consequence):
     if "gamble" in consequence:
         return "Risky: it could go either way"
     for k, v in consequence.items():
+        if k == "covered":
+            parts.append("your family covered the cost")
+            continue
+        if k in ("new_enemy", "new_friend"):
+            continue
         if k == "person":
             who, fx = v
             parts.append(", ".join(f"{who['name']}: {kk.title()} {vv:+d}" for kk, vv in fx.items()))

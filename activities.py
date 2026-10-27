@@ -1,5 +1,7 @@
 import random
 import pygame
+from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
+import lifestyle
 from constants import (WHITE, BLACK, LIGHT_GREY, DARK_GREY, ACCENT, GREEN, RED,
                        font, small_font, draw_text, draw_rounded_rect)
 
@@ -56,41 +58,45 @@ OUTINGS = [
 OUT_BY_ID = {o["id"]: o for o in OUTINGS}
 
 def outing_cost(o, age):
-    return o["cost"] // 2 if age < 16 else o["cost"]
+    return o["cost"]
 
 def outing_visible(o, age, skills):
     if not (o["min"] <= age <= o["max"]):
         return False
     return not o.get("needs") or any(skills.get(k, 0) >= 3 for k in o["needs"])
 
-def draw_activities_tab(screen, rect, mouse_pos, state, age):
+def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
     view = state.setdefault("act_view", "clubs")
     skills = state.setdefault("skills", {})
     mine = state["activities"]
-    views = {"clubs": pygame.Rect(rect.right - 330, rect.y - 2, 160, 24), "outings": pygame.Rect(rect.right - 164, rect.y - 2, 164, 24)}
-    for key, label in (("clubs", "Clubs & Sports"), ("outings", "Outings & Lessons")):
+    views = lifestyle.view_rects(rect)
+    for key, label in (("clubs", "Clubs"), ("outings", "Outings"), ("life", "Lifestyle")):
         vr = views[key]
         on = view == key
         draw_rounded_rect(screen, ACCENT if on else (WHITE if not vr.collidepoint(mouse_pos) else (235, 235, 240)), vr, radius=8)
-        pygame.draw.rect(screen, BLACK, vr, 2, border_radius=8)
-        draw_text(screen, label, small_font, BLACK, vr.centerx, vr.centery, centre=True)
+        pygame.draw.rect(screen, OUTLINE, vr, 2, border_radius=8)
+        draw_text(screen, label, small_font, INK, vr.centerx, vr.centery, centre=True)
+    if view == "life":
+        res = lifestyle.draw_lifestyle(screen, rect, mouse_pos, state, age, career or {})
+        res["views"] = views
+        return res
     cols, row_h = 2, 36
     col_w = (rect.width - 12) // cols
     hits = []
     outs = []
     if view == "outings":
-        draw_text(screen, f"Outings ({state['actions_remaining']} actions left)", font, BLACK, rect.x, rect.y)
+        draw_text(screen, f"Outings ({state['actions_remaining']} actions left)", font, INK, rect.x, rect.y)
         items = [o for o in OUTINGS if outing_visible(o, age, skills)]
         for n, o in enumerate(items):
             col, row = n % cols, n // cols
             r = pygame.Rect(rect.x + col * (col_w + 12), rect.y + 28 + row * (row_h + 3), col_w, row_h)
             cost = outing_cost(o, age)
-            done = state["actions_used"].get("__out__" + o["id"], 0) >= 1
-            can = state["actions_remaining"] > 0 and not done and state["money"] >= cost
+            done = False
+            can = state["actions_remaining"] > 0 and not done and (state["money"] >= cost or age < 18)
             hovered = r.collidepoint(mouse_pos) and can
             draw_rounded_rect(screen, ACCENT if hovered else (WHITE if can else LIGHT_GREY), r, radius=8)
-            pygame.draw.rect(screen, BLACK, r, 2, border_radius=8)
-            draw_text(screen, o["name"], small_font, BLACK, r.x + 10, r.y + 2)
+            pygame.draw.rect(screen, OUTLINE, r, 2, border_radius=8)
+            draw_text(screen, o["name"], small_font, INK, r.x + 10, r.y + 2)
             if o.get("earn"):
                 sub = "Earn a little cash from your talent"
             else:
@@ -98,13 +104,14 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age):
                 if o.get("skill") and skills.get(o["skill"]):
                     sub += f"  ({o['skill'].title()} lvl {skills[o['skill']]})"
             draw_text(screen, sub, small_font, DARK_GREY, r.x + 10, r.y + 18)
-            label = "Done" if done else ("Free" if cost == 0 else f"${cost}" + (" (half)" if age < 16 else ""))
+            n_done = state["actions_used"].get("__out__" + o["id"], 0)
+            label = ("Free" if cost == 0 else ("Ask parents" if age < 18 else f"${cost}")) + (f"  x{n_done}" if n_done else "")
             draw_text(screen, label, small_font, GREEN if cost == 0 and not done else BLACK,
                       r.right - 10 - small_font.size(label)[0], r.y + 2)
             outs.append((o, r))
         return {"acts": [], "views": views, "outs": outs}
     items = available(age)
-    draw_text(screen, f"Clubs ({len(mine)}/{MAX_ACTIVITIES})", font, BLACK, rect.x, rect.y)
+    draw_text(screen, f"Clubs ({len(mine)}/{MAX_ACTIVITIES})", font, INK, rect.x, rect.y)
     for n, a in enumerate(items):
         col, row = n % cols, n // cols
         r = pygame.Rect(rect.x + col * (col_w + 12), rect.y + 28 + row * (row_h + 3), col_w, row_h)
@@ -115,8 +122,8 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age):
         hovered = r.collidepoint(mouse_pos) and (can or joined)
         fill = GREEN if joined and not hovered else (ACCENT if hovered else (WHITE if can else LIGHT_GREY))
         draw_rounded_rect(screen, fill, r, radius=8)
-        pygame.draw.rect(screen, BLACK, r, 2, border_radius=8)
-        draw_text(screen, a["name"], small_font, BLACK, r.x + 10, r.y + 2)
+        pygame.draw.rect(screen, OUTLINE, r, 2, border_radius=8)
+        draw_text(screen, a["name"], small_font, INK, r.x + 10, r.y + 2)
         if a["kind"] == "sport":
             sub = f"Tryout. Needs Athletic {a['join']}+, cut below {a['keep']}"
         else:
@@ -128,32 +135,55 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age):
             label = "Tried"
         else:
             label = "Try out" if a["kind"] == "sport" else "Join"
-        draw_text(screen, label, small_font, BLACK, r.right - 10 - small_font.size(label)[0], r.y + 2)
+        draw_text(screen, label, small_font, INK, r.right - 10 - small_font.size(label)[0], r.y + 2)
         hits.append((a, r))
     if state.get("scholarship"):
         msg = "Sports scholarship offer (easier university entry)"
         draw_text(screen, msg, small_font, GREEN, rect.right - small_font.size(msg)[0], rect.bottom - 18)
     return {"acts": hits, "views": views, "outs": []}
 
-def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, log):
+def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, log, career=None):
     for key, vr in buttons.get("views", {}).items():
         if vr.collidepoint(mx, my):
             state["act_view"] = key
             return
+    if state.get("act_view") == "life":
+        lifestyle.handle_lifestyle_click(mx, my, buttons, state, age, career or {}, friends, make_friend, log)
+        return
     skills = state.setdefault("skills", {})
     for o, r in buttons.get("outs", []):
         if not r.collidepoint(mx, my):
             continue
         cost = outing_cost(o, age)
         flag = "__out__" + o["id"]
-        if state["actions_remaining"] <= 0 or state["actions_used"].get(flag, 0) >= 1 or state["money"] < cost:
+        if state["actions_remaining"] <= 0:
             return
+        if cost and age < 18:
+            # a young person asks their parents to pay for lessons
+            ask = "__askpay__" + o["id"]
+            if state["actions_used"].get(ask) == "no":
+                log(f"Your parents already said no to {o['name'].lower()} this year.")
+                return
+            if not state.get("parents_ok"):
+                log("There's nobody to pay for lessons right now.")
+                return
+            chance = {"Struggling": 0.35, "Comfortable": 0.75, "Wealthy": 0.95}[state.get("family_wealth", "Comfortable")]
+            if random.random() > chance:
+                state["actions_used"][ask] = "no"
+                log(f"You asked your parents to pay for {o['name'].lower()}, but they said not this year.")
+                return
+            log(f"Your parents agreed to pay for {o['name'].lower()}.")
+            cost = 0
+        elif state["money"] < cost:
+            return
+        n_before = state["actions_used"].get(flag, 0)
+        dim = max(0.3, 1 / (1 + 0.5 * n_before))   # repeats give less
         state["actions_remaining"] -= 1
-        state["actions_used"][flag] = 1
+        state["actions_used"][flag] = n_before + 1
         state["money"] -= cost
         stats = state["stats"]
         for k, v in o["fx"].items():
-            stats[k] = max(0, min(100, stats[k] + v))
+            stats[k] = max(0, min(100, stats[k] + (max(1, round(v * dim)) if v > 0 else v)))
         if o.get("earn"):
             lvl = max(skills.get("singing", 0), skills.get("music", 0))
             got = random.randint(6, 12) + 5 * lvl

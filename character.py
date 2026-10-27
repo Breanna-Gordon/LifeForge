@@ -3,6 +3,7 @@ from avatar import draw_avatar
 import colorsys
 import math
 import pygame
+from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
 from constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, WHITE, BLACK, LIGHT_GREY,
     DARK_GREY, GREEN, ACCENT, DEFAULT_HAIR_COLOUR, HAIRSTYLES,
@@ -176,17 +177,17 @@ async def character_selection_screen(screen):
         else:
             screen.blit(fallback_bg, (0, 0))
 
-        draw_text(screen, "Create Your Character", title_font, BLACK,
+        draw_text(screen, "Create Your Character", title_font, INK,
                   SCREEN_WIDTH // 2, 30, centre=True)
 
-        draw_text(screen, "Name:", font, BLACK, 210, 68)
+        draw_text(screen, "Name:", font, INK, 210, 68)
         draw_rounded_rect(screen, WHITE, name_box, radius=8)
-        pygame.draw.rect(screen, BLACK, name_box, 2, border_radius=8)
+        pygame.draw.rect(screen, OUTLINE, name_box, 2, border_radius=8)
         draw_text(screen, name or "Type here...", font,
                   DARK_GREY if not name else BLACK, name_box.x + 10, name_box.y + 6)
 
         draw_rounded_rect(screen, WHITE, avatar_rect, radius=12)
-        pygame.draw.rect(screen, BLACK, avatar_rect, 2, border_radius=12)
+        pygame.draw.rect(screen, OUTLINE, avatar_rect, 2, border_radius=12)
         if gender:
             draw_avatar(screen, avatar_rect, gender, hair_colour,
                        HAIRSTYLES[hairstyle_index], SKIN_TONES[skin_index],
@@ -202,8 +203,8 @@ async def character_selection_screen(screen):
             hovered = rect.collidepoint(mouse_pos)
             fill_colour = GREEN if selected else (ACCENT if hovered else WHITE)
             draw_rounded_rect(screen, fill_colour, rect, radius=16)
-            pygame.draw.rect(screen, BLACK, rect, 2, border_radius=16)
-            draw_text(screen, label, small_font, BLACK, rect.centerx, rect.centery, centre=True)
+            pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=16)
+            draw_text(screen, label, small_font, INK, rect.centerx, rect.centery, centre=True)
 
         draw_text(screen, "Skin Tone", small_font, DARK_GREY, SCREEN_WIDTH // 2, skin_y - 18, centre=True)
         for i, tone in enumerate(SKIN_TONES):
@@ -226,8 +227,8 @@ async def character_selection_screen(screen):
             hovered = rect.collidepoint(mouse_pos)
             fill_colour = ACCENT if selected else (LIGHT_GREY if not hovered else (235, 235, 240))
             draw_rounded_rect(screen, fill_colour, rect, radius=8)
-            pygame.draw.rect(screen, BLACK, rect, 2, border_radius=8)
-            draw_text(screen, style, small_font, BLACK, rect.centerx, rect.centery, centre=True)
+            pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=8)
+            draw_text(screen, style, small_font, INK, rect.centerx, rect.centery, centre=True)
 
         if gender == "Male":
             draw_text(screen, "Facial Hair", small_font, DARK_GREY, SCREEN_WIDTH // 2, facial_y - 16, centre=True)
@@ -238,8 +239,8 @@ async def character_selection_screen(screen):
                 hovered = rect.collidepoint(mouse_pos)
                 fill_colour = ACCENT if selected else (LIGHT_GREY if not hovered else (235, 235, 240))
                 draw_rounded_rect(screen, fill_colour, rect, radius=8)
-                pygame.draw.rect(screen, BLACK, rect, 2, border_radius=8)
-                draw_text(screen, style, small_font, BLACK, rect.centerx, rect.centery, centre=True)
+                pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=8)
+                draw_text(screen, style, small_font, INK, rect.centerx, rect.centery, centre=True)
 
         draw_text(screen, "Attracted to", small_font, DARK_GREY, SCREEN_WIDTH // 2, orient_y - 16, centre=True)
         for i, (label, _v) in enumerate(ORIENTS):
@@ -247,15 +248,15 @@ async def character_selection_screen(screen):
             selected = i == orient_index
             fill_colour = ACCENT if selected else (LIGHT_GREY if not rect.collidepoint(mouse_pos) else (235, 235, 240))
             draw_rounded_rect(screen, fill_colour, rect, radius=8)
-            pygame.draw.rect(screen, BLACK, rect, 2, border_radius=8)
-            draw_text(screen, label, small_font, BLACK, rect.centerx, rect.centery, centre=True)
+            pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=8)
+            draw_text(screen, label, small_font, INK, rect.centerx, rect.centery, centre=True)
 
         enabled = bool(name.strip() and gender)
         continue_hovered = continue_rect.collidepoint(mouse_pos)
         fill_colour = (ACCENT if continue_hovered else GREEN) if enabled else LIGHT_GREY
         draw_rounded_rect(screen, fill_colour, continue_rect, radius=12)
-        pygame.draw.rect(screen, BLACK, continue_rect, 2, border_radius=12)
-        draw_text(screen, "Continue", font, BLACK, continue_rect.centerx, continue_rect.centery, centre=True)
+        pygame.draw.rect(screen, OUTLINE, continue_rect, 2, border_radius=12)
+        draw_text(screen, "Continue", font, INK, continue_rect.centerx, continue_rect.centery, centre=True)
 
         draw_text(screen, "Press ESC to return to the menu.",
                   small_font, DARK_GREY, SCREEN_WIDTH // 2, 690, centre=True)
