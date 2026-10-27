@@ -1,3 +1,5 @@
+import worldjobs
+from constants import fmt
 import random
 import pygame
 from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
@@ -20,35 +22,69 @@ def J(title, age, edu, pay, wealth, prestige=0, courses=None, stats=None, any_of
             "skills": skills or {}, "fame": fame}
 
 JOB_TIERS = [
-    J("Cashier", 16, "None", 15, 3),
-    J("Waiter", 16, "None", 14, 3, stats={"social": 40}),
-    J("Warehouse Worker", 18, "None", 18, 4, stats={"physical": 45}),
-    J("Office Assistant", 18, "None", 22, 5),
-    J("Fitness Instructor", 18, "None", 24, 5, stats={"athletic": 60}),
-    J("Musician", 16, "None", 20, 4, stats={"social": 45}, any_of=["band"], fame=True),
-    J("Singer", 16, "None", 22, 4, stats={"social": 45}, skills={"singing": 3}, fame=True),
-    J("Music Producer", 18, "None", 30, 6, stats={"academic": 45}, skills={"music": 3}, fame=True),
-    J("Influencer", 16, "None", 18, 3, stats={"looks": 55, "social": 55}, fame=True),
-    J("Model", 18, "None", 40, 8, stats={"looks": 75}, fame=True),
-    J("Actor", 18, "None", 38, 7, stats={"looks": 60, "social": 60}, any_of=["drama"], fame=True),
-    J("Professional Athlete", 18, "None", 70, 12, stats={"athletic": 85},
+    J("Cashier", 16, "None", 15000, 3),
+    J("Waiter", 16, "None", 14000, 3, stats={"social": 40}),
+    J("Warehouse Worker", 18, "None", 18000, 4, stats={"physical": 45}),
+    J("Office Assistant", 18, "None", 22000, 5),
+    J("Fitness Instructor", 18, "None", 24000, 5, stats={"athletic": 60}),
+    J("Musician", 16, "None", 20000, 4, stats={"social": 45}, any_of=["band"], fame=True),
+    J("Singer", 16, "None", 22000, 4, stats={"social": 45}, skills={"singing": 3}, fame=True),
+    J("Music Producer", 18, "None", 30000, 6, stats={"academic": 45}, skills={"music": 3}, fame=True),
+    J("Influencer", 16, "None", 18000, 3, stats={"looks": 55, "social": 55}, fame=True),
+    J("Model", 18, "None", 40000, 8, stats={"looks": 75}, fame=True),
+    J("Actor", 18, "None", 38000, 7, stats={"looks": 60, "social": 60}, any_of=["drama"], fame=True),
+    J("Professional Athlete", 18, "None", 70000, 12, stats={"athletic": 85},
       any_of=["football", "basket", "swim", "track", "rugby"], fame=True),
-    J("Electrician", 18, "Diploma", 38, 8, courses=["Electrician"]),
-    J("Plumber", 18, "Diploma", 36, 8, courses=["Plumber"]),
-    J("Chef", 18, "Diploma", 30, 6, courses=["Chef"]),
-    J("Mechanic", 18, "Diploma", 34, 7, courses=["Mechanic"], stats={"physical": 40}),
-    J("Hairdresser", 18, "Diploma", 26, 5, courses=["Hairdresser"], stats={"looks": 40}),
-    J("Nursing Assistant", 18, "Diploma", 28, 6, courses=["Nursing Assistant"]),
-    J("Teacher", 21, "Bachelor's", 35, 8, courses=["Education", "Arts", "Sport Science"]),
-    J("Sports Coach", 21, "Bachelor's", 34, 7, courses=["Sport Science"], stats={"athletic": 50}),
-    J("Designer", 21, "Bachelor's", 38, 8, courses=["Arts"]),
-    J("Accountant", 21, "Bachelor's", 40, 9, courses=["Business"]),
-    J("Engineer", 21, "Bachelor's", 52, 10, courses=["Engineering"]),
-    J("Software Engineer", 21, "Bachelor's", 55, 11, prestige=2, courses=["Computer Science", "Engineering"]),
-    J("Manager", 24, "Master's", 65, 14, prestige=2, courses=["Business", "Engineering", "Computer Science"]),
-    J("Lawyer", 24, "Master's", 80, 16, prestige=3, courses=["Law"]),
-    J("Doctor", 26, "PhD", 100, 20, prestige=3, courses=["Medicine"]),
-    J("University Professor", 27, "PhD", 70, 15, prestige=2),
+    J("Electrician", 18, "Diploma", 38000, 8, courses=["Electrician"]),
+    J("Plumber", 18, "Diploma", 36000, 8, courses=["Plumber"]),
+    J("Chef", 18, "Diploma", 30000, 6, courses=["Chef"]),
+    J("Mechanic", 18, "Diploma", 34000, 7, courses=["Mechanic"], stats={"physical": 40}),
+    J("Hairdresser", 18, "Diploma", 26000, 5, courses=["Hairdresser"], stats={"looks": 40}),
+    J("Nursing Assistant", 18, "Diploma", 28000, 6, courses=["Nursing Assistant"]),
+    J("Teacher", 21, "Bachelor's", 35000, 8, courses=["Education", "Arts", "Sport Science"]),
+    J("Sports Coach", 21, "Bachelor's", 34000, 7, courses=["Sport Science"], stats={"athletic": 50}),
+    J("Designer", 21, "Bachelor's", 38000, 8, courses=["Arts"]),
+    J("Accountant", 21, "Bachelor's", 40000, 9, courses=["Business"]),
+    J("Engineer", 21, "Bachelor's", 52000, 10, courses=["Engineering"]),
+    J("Software Engineer", 21, "Bachelor's", 55000, 11, prestige=2, courses=["Computer Science", "Engineering"]),
+    J("Manager", 24, "Master's", 65000, 14, prestige=2, courses=["Business", "Engineering", "Computer Science"]),
+    J("Lawyer", 24, "Master's", 80000, 16, prestige=3, courses=["Law"]),
+    J("Doctor", 26, "PhD", 100000, 20, prestige=3, courses=["Medicine"]),
+    J("University Professor", 27, "PhD", 70000, 15, prestige=2),
+    J("Delivery Driver", 16, "None", 17000, 3, stats={"physical": 40}),
+    J("Bartender", 18, "None", 19000, 4, stats={"social": 50}),
+    J("Security Guard", 18, "None", 23000, 5, stats={"athletic": 50}),
+    J("Construction Worker", 18, "None", 30000, 6, stats={"athletic": 55}),
+    J("Farmhand", 18, "None", 20000, 4, stats={"physical": 45}),
+    J("Call Centre Agent", 18, "None", 21000, 4, stats={"social": 40}),
+    J("Personal Trainer", 18, "None", 28000, 6, stats={"athletic": 65, "social": 45}),
+    J("Dancer", 16, "None", 22000, 4, stats={"looks": 55, "athletic": 55}, skills={"dance": 3}, fame=True),
+    J("DJ", 18, "None", 26000, 5, stats={"social": 55}, skills={"music": 2}, fame=True),
+    J("Streamer", 16, "None", 16000, 3, stats={"social": 50, "looks": 40}, fame=True),
+    J("Comedian", 18, "None", 20000, 4, stats={"social": 70}, any_of=["drama", "debate"], fame=True),
+    J("Boxer", 18, "None", 45000, 8, stats={"athletic": 75, "physical": 60}, any_of=["track", "rugby", "football"], fame=True),
+    J("Soldier", 18, "None", 32000, 6, stats={"athletic": 55, "physical": 55}),
+    J("Police Officer", 21, "Diploma", 44000, 8, courses=["Police Training"], stats={"athletic": 50}),
+    J("Firefighter", 21, "Diploma", 42000, 8, courses=["Firefighter"], stats={"athletic": 60}),
+    J("Paramedic", 21, "Diploma", 41000, 7, courses=["Paramedic"]),
+    J("Carpenter", 18, "Diploma", 35000, 7, courses=["Carpenter"]),
+    J("Beautician", 18, "Diploma", 27000, 5, courses=["Beautician"], stats={"looks": 45}),
+    J("Pilot", 23, "Diploma", 92000, 16, prestige=1, courses=["Pilot Licence"], stats={"academic": 55}),
+    J("Journalist", 21, "Bachelor's", 38000, 8, courses=["Media & Film", "Arts"]),
+    J("Photographer", 18, "None", 24000, 5, stats={"looks": 45}, skills={"photography": 2}),
+    J("Game Developer", 21, "Bachelor's", 52000, 10, courses=["Computer Science"]),
+    J("Psychologist", 24, "Master's", 62000, 12, prestige=2, courses=["Psychology"]),
+    J("Scientist", 24, "Master's", 64000, 12, prestige=2, courses=["Science"]),
+    J("Architect", 24, "Master's", 66000, 13, prestige=2, courses=["Architecture"]),
+    J("Film Director", 24, "Bachelor's", 58000, 11, courses=["Media & Film"], stats={"social": 60}, fame=True),
+    J("Vet", 24, "Master's", 68000, 13, prestige=2, courses=["Science", "Medicine"]),
+    J("Dentist", 24, "Master's", 90000, 17, prestige=3, courses=["Medicine"]),
+    J("Data Scientist", 24, "Master's", 78000, 14, prestige=2, courses=["Computer Science"]),
+    J("Investment Banker", 24, "Master's", 105000, 19, prestige=3, courses=["Business"], stats={"social": 55}),
+    J("Politician", 26, "Master's", 75000, 15, prestige=2, courses=["Law", "Business"], stats={"social": 65}, fame=True),
+    J("Company CEO", 28, "Master's", 150000, 24, prestige=3, courses=["Business", "Engineering", "Computer Science"], stats={"social": 65, "academic": 60}),
+    J("Judge", 30, "PhD", 120000, 20, prestige=3, courses=["Law"]),
+    J("Surgeon", 28, "PhD", 170000, 25, prestige=3, courses=["Medicine"], stats={"academic": 80}),
 ]
 
 def P(title, age, pay, stats=None, enrolled=False, intern=False):
@@ -57,19 +93,20 @@ def P(title, age, pay, stats=None, enrolled=False, intern=False):
 
 # Part-time and student jobs: you can do one alongside school, study or a main job.
 PART_TIME = [
-    P("Paper Round", 13, 6),
-    P("Babysitter", 14, 8, {"social": 40}),
-    P("Cafe Assistant", 16, 12),
-    P("Retail Assistant", 16, 12, {"social": 35}),
-    P("Tutor", 16, 14, {"academic": 60}),
-    P("Lifeguard", 16, 13, {"athletic": 55}),
-    P("Delivery Rider", 17, 14, {"physical": 45}),
-    P("Weekend Bar Work", 18, 16, {"social": 45}),
-    P("Campus Library Assistant", 18, 12, enrolled=True),
-    P("Research Assistant", 18, 22, {"academic": 65}, enrolled=True),
-    P("Internship", 18, 15, enrolled=True, intern=True),
+    P("Paper Round", 13, 2400),
+    P("Babysitter", 14, 3200, {"social": 40}),
+    P("Cafe Assistant", 16, 4800),
+    P("Retail Assistant", 16, 4800, {"social": 35}),
+    P("Tutor", 16, 5600, {"academic": 60}),
+    P("Lifeguard", 16, 5200, {"athletic": 55}),
+    P("Delivery Rider", 17, 5600, {"physical": 45}),
+    P("Weekend Bar Work", 18, 6400, {"social": 45}),
+    P("Campus Library Assistant", 18, 4800, enrolled=True),
+    P("Research Assistant", 18, 8800, {"academic": 65}, enrolled=True),
+    P("Internship", 18, 6000, enrolled=True, intern=True),
 ]
-TITLE_PREFIX = ["", "Senior ", "Lead ", "Head of "]
+TITLE_PREFIX = ["", "Senior ", "Lead ", "Head of ", "Director of ", "Chief "]
+MAX_LEVEL = 5
 
 def _log(state, text):
     state["journal"].append((state["age"], text))
@@ -87,9 +124,17 @@ def eligible_jobs(career, state):
     current = (career["job"].get("base") or career["job"]["title"]) if career["job"] else None
     trade = career.get("trade")
     ok, locked = [], 0
+    fame = career.get("fame", 0)
     for j in JOB_TIERS:
         if j["min_age"] > age or j["title"] == current:
             continue
+        if j.get("fame") and fame >= 15:
+            # existing fame is a head start: easier entry, no club needed, better pay
+            j = dict(j)
+            j["stats"] = {k: max(0, v - fame // 2) for k, v in j["stats"].items()}
+            j["any_of"] = None
+            j["skills"] = {}
+            j["pay"] = int(j["pay"] * (1 + fame / 50))
         need_prestige = max(0, j["min_prestige"] - (1 if career.get("experience", 0) >= 2 else 0))
         qualified = (EDUCATION_RANK[j["min_education"]] <= rank
                      and need_prestige <= prestige
@@ -136,12 +181,12 @@ def H(title, base, age, pay, stats=None, skills_any=None):
 
 # Side careers: chase fame while you work full time or study.
 HUSTLES = [
-    H("Content Creator", "Influencer", 10, 8, {"social": 40}),
-    H("Streamer", "Influencer", 14, 10, {"social": 45}),
-    H("Gigging Musician", "Musician", 12, 10, skills_any={"singing": 2, "music": 2}),
-    H("Community Theatre", "Actor", 12, 8, {"social": 50}),
-    H("Part-time Modelling", "Model", 16, 12, {"looks": 65}),
-    H("Amateur Athlete", "Professional Athlete", 12, 10, {"athletic": 65}),
+    H("Content Creator", "Influencer", 10, 8000, {"social": 40}),
+    H("Streamer", "Influencer", 14, 10000, {"social": 45}),
+    H("Gigging Musician", "Musician", 12, 10000, skills_any={"singing": 2, "music": 2}),
+    H("Community Theatre", "Actor", 12, 8000, {"social": 50}),
+    H("Part-time Modelling", "Model", 16, 12000, {"looks": 65}),
+    H("Amateur Athlete", "Professional Athlete", 12, 10000, {"athletic": 65}),
 ]
 
 def eligible_hustles(career, state):
@@ -160,6 +205,11 @@ def active_fame_job(career):
         return job
     return career.get("hustle")
 
+def fame_multiplier(fame):
+    """Pay multiplier for fame jobs. Low fame barely matters; at the very top
+    (fame ~100) a star earns about 40 times the base wage."""
+    return 1 + 40 * (max(0, min(100, fame)) / 100) ** 3
+
 FAME_TIERS = [(80, "Superstar"), (60, "Famous"), (40, "Rising star"), (20, "Local name"), (0, "Unknown")]
 
 def fame_tier(fame):
@@ -175,7 +225,7 @@ SPECIAL = {
     "Influencer": ("Go viral", "Try to go viral"),
 }
 FAME_BUTTONS = [("promo", "Promo campaign"), ("talk", "Talk show"), ("brand", "Brand deal (fame 30+)"),
-                ("post", "Post online"), ("gala", "Charity gala ($10)"), ("special", None)]
+                ("post", "Post online"), ("gala", "Charity gala ($300)"), ("special", None)]
 
 def fame_button_rects(rect, y):
     out = {}
@@ -194,10 +244,10 @@ def do_fame_action(key, career, state, job):
     fame = career.get("fame", 0)
     def gain(v):
         career["fame"] = max(0, min(100, career.get("fame", 0) + max(1, round(v * dim))))
-    pay = job["pay"]
+    pay = int(job["pay"] * fame_multiplier(fame))
     if key == "promo":
-        got = max(2, int(pay * 0.15 * dim)); state["money"] += got; gain(4)
-        return f"Fronted a promo campaign (+${got}, fame up)."
+        got = max(20, int(pay * 0.03 * dim)); state["money"] += got; gain(4)
+        return f"Fronted a promo campaign (+${fmt(got)}, fame up)."
     if key == "talk":
         chance = 0.45 + (stats["social"] + stats["looks"] - 100) / 300
         if random.random() < max(0.15, min(0.9, chance)):
@@ -210,40 +260,40 @@ def do_fame_action(key, career, state, job):
             used["__fame_" + key] = n
             state["actions_remaining"] += 1
             return "Brands weren't interested yet. You need fame 30+."
-        got = int(pay * (0.3 + fame / 150) * dim) + 5; state["money"] += got; gain(1)
-        return f"Signed a brand deal worth ${got}."
+        got = int(pay * (0.06 + fame / 1500) * dim) + 50; state["money"] += got; gain(1)
+        return f"Signed a brand deal worth ${fmt(got)}."
     if key == "post":
         gain(2); stats["social"] = min(100, stats["social"] + 1)
         return "Posted online and picked up followers."
     if key == "gala":
-        if state["money"] < 10:
+        if state["money"] < 300:
             used["__fame_" + key] = n
             state["actions_remaining"] += 1
             return "You can't afford the gala ticket."
-        state["money"] -= 10; gain(3); stats["social"] = min(100, stats["social"] + 2)
+        state["money"] -= 300; gain(3); stats["social"] = min(100, stats["social"] + 2)
         return "Attended a charity gala and was photographed."
     # job-specific
     base = job.get("base", job["title"])
     if base == "Model":
-        gain(5); got = max(3, int(pay * 0.2 * dim)); state["money"] += got
-        return f"Walked at fashion week (+${got})."
+        gain(5); got = max(100, int(pay * 0.05 * dim)); state["money"] += got
+        return f"Walked at fashion week (+${fmt(got)})."
     if base == "Actor":
         if random.random() < 0.3 + stats["social"] / 300 + stats["looks"] / 400:
-            gain(8); job["pay"] = int(pay * 1.1) + 1
+            gain(8); job["pay"] = int(job["pay"] * 1.1) + 100
             return "Landed a lead role! Your fee went up."
         stats["mental"] = max(0, stats["mental"] - 1)
         return "Didn't get the part this time."
     if base == "Professional Athlete":
         if random.random() < 0.25 + stats["athletic"] / 200:
-            gain(7); got = int(pay * 0.2) + 3; state["money"] += got
-            return f"Won the championship match (+${got})!"
+            gain(7); got = int(pay * 0.06) + 300; state["money"] += got
+            return f"Won the championship match (+${fmt(got)})!"
         career["fame"] = max(0, career.get("fame", 0) - 1)
         return "Lost the championship match."
     if base in ("Musician", "Singer", "Music Producer"):
         hit = random.random() < 0.35 + max(state.get("skills", {}).get("singing", 0), state.get("skills", {}).get("music", 0)) * 0.08
         if hit:
-            gain(8); got = int(pay * 0.4) + 4; state["money"] += got
-            return f"Your release was a hit (+${got})."
+            gain(8); got = int(pay * 0.08) + 200; state["money"] += got
+            return f"Your release was a hit (+${fmt(got)})."
         gain(2)
         return "Your release got a lukewarm response."
     if random.random() < 0.3:
@@ -252,15 +302,33 @@ def do_fame_action(key, career, state, job):
     gain(1)
     return "Your post didn't catch on."
 
+def cv_save(state, job):
+    """Remember the best rank you reached in each line of work."""
+    cv = state.setdefault("cv", {})
+    base = job.get("base") or job["title"]
+    old = cv.get(base)
+    if not old or job.get("level", 0) >= old["level"]:
+        cv[base] = {"level": job.get("level", 0), "pay": job["pay"], "years": job.get("years", 0) + (old["years"] if old and old["level"] > job.get("level", 0) else 0)}
+
+def _promote(job, state, verb):
+    job["level"] = job.get("level", 0) + 1
+    job["since"] = 0
+    job["pay"] = int(job["pay"] * 1.25) + 500
+    job["title"] = TITLE_PREFIX[job["level"]] + job["base"]
+    state["stats"]["wealth"] = min(100, state["stats"]["wealth"] + 3)
+    state["stats"]["mental"] = min(100, state["stats"]["mental"] + 2)
+    cv_save(state, job)
+    _log(state, f"{verb} to {job['title']}! Pay is now ${fmt(job['pay'])} a year.")
+
 def can_promote(job):
-    return job.get("level", 0) < 3 and job.get("since", 0) >= 2
+    return job.get("level", 0) < MAX_LEVEL and job.get("since", 0) >= 2
 
 def draw_side_job_row(screen, rect, mouse_pos, career, state, y, buttons):
     side = career.get("side_job")
     if state["age"] < 13:
         return
     if side:
-        draw_text(screen, f"Part-time: {side['title']} (${side['pay']}/yr)", small_font, INK, rect.x, rect.y + y + 8)
+        draw_text(screen, f"Part-time: {side['title']} (${fmt(side['pay'])}/yr)", small_font, INK, rect.x, rect.y + y + 8)
         q = pygame.Rect(rect.x + 360, rect.y + y, 150, 30)
         draw_button(screen, q, "Quit part-time", mouse_pos)
         buttons["side_quit"] = q
@@ -301,7 +369,11 @@ def draw_career_tab(screen, rect, mouse_pos, career, state):
             row_rect = pygame.Rect(rect.x, y, rect.width, 34)
             draw_rounded_rect(screen, WHITE, row_rect, radius=6)
             pygame.draw.rect(screen, OUTLINE, row_rect, 1, border_radius=6)
-            draw_text(screen, f"{job['title']}  (${job['pay']}/yr)", small_font, INK,
+            cvp = state.get("cv", {}).get(job["title"])
+            hint = ""
+            if cvp:
+                hint = f"   CV: {TITLE_PREFIX[cvp['level']].strip() or 'Entry'} level, ${fmt(int(cvp['pay'] * 0.95))}"
+            draw_text(screen, f"{job['title']}  (${fmt(job['pay'])}/yr){hint}", small_font, INK,
                       row_rect.x + 10, row_rect.y + 8)
             take_rect = pygame.Rect(row_rect.right - 90, row_rect.y + 4, 80, 26)
             hovered = take_rect.collidepoint(mouse_pos)
@@ -363,7 +435,7 @@ def draw_career_tab(screen, rect, mouse_pos, career, state):
         job = career["job"]
         lvl = job.get("level", 0)
         draw_text(screen, f"Working as {job['title']}", font, INK, rect.x, rect.y)
-        draw_text(screen, f"Pay: ${job['pay']}/yr   Years: {job.get('years', 0)}   Experience: {career.get('experience', 0)}",
+        draw_text(screen, f"Pay: ${fmt(job['pay'])}/yr   Years: {job.get('years', 0)}   Experience: {career.get('experience', 0)}",
                   small_font, DARK_GREY, rect.x, rect.y + 26)
         perf = job.get("perf", 55)
         bar = pygame.Rect(rect.x + 510, rect.y + 8, 150, 12)
@@ -378,7 +450,7 @@ def draw_career_tab(screen, rect, mouse_pos, career, state):
         n_ot = state["actions_used"].get("__ot__", 0)
         draw_button(screen, ot, "Work overtime" + (f" ({n_ot})" if n_ot else ""), mouse_pos, disabled=no_budget)
         draw_button(screen, net, "Network at work", mouse_pos, disabled=no_budget)
-        pl = "Ask for promotion" if can_promote(job) else ("Top of the ladder" if lvl >= 3 else "Promotion (2+ yrs since last)")
+        pl = "Ask for promotion" if can_promote(job) else ("Top of the ladder" if lvl >= MAX_LEVEL else "Promotion (2+ yrs since last)")
         draw_button(screen, promo, pl, mouse_pos, disabled=no_budget or not can_promote(job))
         buttons.update({"better": better, "quit": quit_r, "ot": ot, "net": net, "promo": promo})
         side_y = 148
@@ -399,9 +471,18 @@ def draw_career_tab(screen, rect, mouse_pos, career, state):
     draw_side_job_row(screen, rect, mouse_pos, career, state, 96, buttons)
     return buttons
 
-def _new_job(job):
+def _new_job(job, state=None):
     j = dict(job)
     j.update({"base": job["title"], "years": 0, "perf": 55, "level": 0, "since": 0})
+    past = (state or {}).get("cv", {}).get(job["title"]) if state is not None else None
+    if past and (past["level"] > 0 or past["pay"] * 0.95 > j["pay"]):
+        # your experience is on your CV: come back at (nearly) the rank you reached
+        j["level"] = past["level"]
+        j["pay"] = max(j["pay"], int(past["pay"] * 0.95))
+        j["years"] = past.get("years", 0)
+        j["since"] = 1
+        j["title"] = TITLE_PREFIX[j["level"]] + j["base"]
+        _log(state, f"Your CV counted: hired back as {j['title']} on ${fmt(j['pay'])} a year.")
     return j
 
 def handle_career_click(mx, my, buttons, career, state):
@@ -418,7 +499,7 @@ def handle_career_click(mx, my, buttons, career, state):
                     career["side_job"] = dict(job)
                     _log(state, f"Started a part-time job: {job['title']}.")
                 else:
-                    career["job"] = _new_job(job)
+                    career["job"] = _new_job(job, state)
                 career["browsing_jobs"] = False
                 state["actions_remaining"] -= 1
                 return
@@ -469,11 +550,13 @@ def handle_career_click(mx, my, buttons, career, state):
             career["browsing_jobs"] = "main"
             career["scroll"] = 0
         elif buttons["quit"].collidepoint(mx, my):
+            cv_save(state, job)
+            _log(state, f"You quit your job as {job['title']}. It stays on your CV.")
             career["job"] = None
             state["actions_remaining"] -= 1
         elif buttons["ot"].collidepoint(mx, my):
             n = used.get("__ot__", 0)
-            bonus = max(1, int(job["pay"] * 0.15 / (1 + n)))
+            bonus = max(50, int(job["pay"] * 0.02 / (1 + n)))
             state["money"] += bonus
             stats["mental"] = max(0, stats["mental"] - 2)
             if n >= 2:
@@ -481,7 +564,7 @@ def handle_career_click(mx, my, buttons, career, state):
             job["perf"] = min(100, job.get("perf", 55) + 6)
             used["__ot__"] = n + 1
             state["actions_remaining"] -= 1
-            _log(state, f"Worked overtime and earned ${bonus}.")
+            _log(state, f"Worked overtime and earned ${fmt(bonus)}.")
         elif buttons["net"].collidepoint(mx, my):
             n = used.get("__net__", 0)
             stats["social"] = min(100, stats["social"] + max(1, 2 - n // 2))
@@ -492,12 +575,7 @@ def handle_career_click(mx, my, buttons, career, state):
             chance = 0.15 + job.get("perf", 55) / 150 + (stats["academic"] - 50) / 400
             state["actions_remaining"] -= 1
             if random.random() < max(0.05, min(0.85, chance)):
-                job["level"] = job.get("level", 0) + 1
-                job["since"] = 0
-                job["pay"] = int(job["pay"] * 1.25) + 2
-                job["title"] = TITLE_PREFIX[job["level"]] + job["base"]
-                stats["wealth"] = min(100, stats["wealth"] + 3)
-                _log(state, f"Promoted to {job['title']}!")
+                _promote(job, state, "Promoted")
             else:
                 job["perf"] = max(0, job.get("perf", 55) - 5)
                 _log(state, "Asked for a promotion but was turned down.")
@@ -524,29 +602,37 @@ def advance_career_year(career, state, age):
         job["since"] = job.get("since", 0) + 1
         perf = job.get("perf", 55) + random.randint(-4, 3) - (5 if stats["mental"] < 30 else 0) + (2 if stats["mental"] >= 70 else 0)
         job["perf"] = max(0, min(100, perf))
+        # strong performers get promoted without having to ask
+        if job["perf"] >= 80 and job.get("since", 0) >= 2 and job.get("level", 0) < MAX_LEVEL:
+            if job["perf"] >= 95 or random.random() < 0.15 + (job["perf"] - 80) * 0.03:
+                _promote(job, state, "Your hard work paid off. You were promoted")
         job["pay"] = max(job["pay"], round(job["pay"] * 1.03))
+        cv_save(state, job)
         if "car" in state["owned"]:
             state["money"] += max(1, job["pay"] // 20)   # the commute is easier
         stats["wealth"] = max(0, min(100, stats["wealth"] + job["wealth"]))
         state["money"] += job["pay"]
         if job.get("fame"):
-            bonus = int(job["pay"] * career.get("fame", 0) / 100)
+            bonus = int(job["pay"] * (fame_multiplier(career.get("fame", 0)) - 1))
             if bonus:
                 state["money"] += bonus
-                log(f"Fame earned you an extra ${bonus} this year.")
+                log(f"Fame earned you an extra ${fmt(bonus)} this year.")
         elif stats["looks"] >= 70:
             state["money"] += max(1, job["pay"] // 20)   # looks open doors
         career["experience"] = career.get("experience", 0) + 1
         if job["perf"] < 15 and random.random() < 0.4:
+            cv_save(state, job)
             log(f"You were let go from your job as {job['title']}.")
             career["job"] = None
     elif age < 18:
-        wealth = state.get("family_wealth", "Comfortable")
-        state["money"] += {"Struggling": 8, "Comfortable": 15, "Wealthy": 30}[wealth]  # pocket money
+        base, gift = state.get("_pocket", (150, 0))
+        state["money"] += base + gift   # pocket money from the parents' pay
+        if base or gift:
+            _log(state, f"Pocket money this year: ${fmt(base)}" + (f", plus ${fmt(gift)} from your grandparents." if gift else "."))
 
     hustle = career.get("hustle")
     if hustle:
-        state["money"] += hustle["pay"] // 2 + int(hustle["pay"] * career.get("fame", 0) / 200)
+        state["money"] += hustle["pay"] // 2 + int(hustle["pay"] * (fame_multiplier(career.get("fame", 0)) - 1) / 2)
         if career["job"] or career["enrolled"] or age < 18:
             stats["mental"] = max(0, stats["mental"] - 1)    # it takes up your spare time
     old_tier = fame_tier(career.get("fame", 0))
@@ -578,15 +664,15 @@ def advance_career_year(career, state, age):
         if owe:
             if fund.get("mode") == "loan":
                 state["debt"] = state.get("debt", 0) + owe
-                log(f"Took a ${owe} student loan for fees.")
+                log(f"Took a ${fmt(owe)} student loan for fees.")
             else:
                 paid = min(owe, state["money"])
                 state["money"] -= paid
                 if paid < owe:
                     state["debt"] = state.get("debt", 0) + (owe - paid)
-                    log(f"Couldn't cover all the fees: ${owe - paid} was added to your debt.")
+                    log(f"Couldn't cover all the fees: ${fmt(owe - paid)} was added to your debt.")
                 else:
-                    log(f"Paid ${paid} in tuition.")
+                    log(f"Paid ${fmt(paid)} in tuition.")
         career["uni_years_done"] += 1
         target = career["uni_target"]
         if career["uni_years_done"] >= UNI_DURATION[target]:
@@ -608,11 +694,11 @@ def advance_career_year(career, state, age):
         debt = int(round(debt * (1 + DEBT_INTEREST)))
         income = (career["job"]["pay"] if career["job"] else 0) + (career["side_job"]["pay"] if career.get("side_job") else 0)
         if income and not career["enrolled"]:
-            pay = min(debt, state["money"], max(5, int(income * 0.2)))
+            pay = min(debt, state["money"], max(50, int(income * 0.2)))
             state["money"] -= pay
             debt -= pay
             if pay:
-                log(f"Repaid ${pay} of your debt.")
+                log(f"Repaid ${fmt(pay)} of your debt.")
         state["debt"] = debt
     sv = state.get("savings", 0)
     if sv > 0:

@@ -1,11 +1,12 @@
+from constants import fmt
 import random
 
 # Everyday money and health, run once a year. Children never pay for
 # anything: their family covers it.
-RENT = 20
+RENT = 6000
 LIVE_WITH_PARENTS_UNTIL = 24
 RETIRE_AGE = 67
-STATE_PENSION = 10
+STATE_PENSION = 9000
 
 def _log(state, text):
     state["journal"].append((state["age"], text))
@@ -16,7 +17,6 @@ def yearly_costs(state, career, age, parents_ok):
     stats = state["stats"]
     home = state.get("home")
     if home:
-        home["value"] = int(home["value"] * 1.04)
         stats["mental"] = min(100, stats["mental"] + 1)
         return
     if age < 18:
@@ -30,7 +30,7 @@ def yearly_costs(state, career, age, parents_ok):
         state["money"] = 0
         stats["mental"] = max(0, stats["mental"] - 2)
         stats["wealth"] = max(0, stats["wealth"] - 2)
-        _log(state, f"You could only pay ${paid} of your ${RENT} rent. It was a stressful year.")
+        _log(state, f"You could only pay ${fmt(paid)} of your ${fmt(RENT)} rent. It was a stressful year.")
 
 def health_year(state, age):
     """Illness and injury. Adults pay the bill; children don't."""
@@ -45,10 +45,10 @@ def health_year(state, age):
     if age < 18:
         _log(state, f"You were ill with {what}. Your family sorted out the doctor.")
         return
-    bill = random.randint(8, 30)
+    bill = random.randint(300, 2500)
     paid = min(bill, state["money"])
     state["money"] -= paid
-    _log(state, f"You had {what} and paid ${paid} in medical bills.")
+    _log(state, f"You had {what} and paid ${fmt(paid)} in medical bills.")
 
 def report_card(state, age):
     if not 6 <= age <= 17:
@@ -69,13 +69,13 @@ def invest_year(state):
     new = max(0, int(round(inv * (1 + change))))
     state["invest"] = new
     pct = int(round(change * 100))
-    _log(state, f"Your investments {'grew' if pct >= 0 else 'fell'} {abs(pct)}% (now ${new}).")
+    _log(state, f"Your investments {'grew' if pct >= 0 else 'fell'} {abs(pct)}% (now ${fmt(new)}).")
 
 def retirement_year(career, state, age):
     """At 67 you retire and draw a pension based on your last pay."""
     if age >= RETIRE_AGE and career["job"]:
         state["pension"] = max(state.get("pension", 0), career["job"]["pay"] // 2)
-        _log(state, f"You retired from your job as {career['job']['title']}. Pension: ${state['pension']} a year.")
+        _log(state, f"You retired from your job as {career['job']['title']}. Pension: ${fmt(state['pension'])} a year.")
         career["job"] = None
         career["side_job"] = None
     if age >= RETIRE_AGE:

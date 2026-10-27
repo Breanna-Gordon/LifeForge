@@ -44,6 +44,11 @@ ACHIEVEMENTS = [
     ("Investor",         "Invest some money",            lambda s, c, f, p, pe: s.get("invest", 0) > 0),
     ("Freelancer",       "Finish 10 freelance gigs",     lambda s, c, f, p, pe: s.get("gigs_done", 0) >= 10),
     ("Makeover",         "Have plastic surgery",         lambda s, c, f, p, pe: s.get("surgeries", 0) > 0),
+    ("Mogul",            "Own a business worth $1,000,000", lambda s, c, f, p, pe: any(b.get("value", 0) >= 1000000 for b in s.get("businesses", []))),
+    ("Empire",           "Own 3 businesses at once",     lambda s, c, f, p, pe: len(s.get("businesses", [])) >= 3),
+    ("Going Public",     "Take a company public",        lambda s, c, f, p, pe: any(b.get("public") for b in s.get("businesses", []))),
+    ("Grandparent",      "Have a grandchild",            lambda s, c, f, p, pe: any(x.get("is_grand") for x in pe)),
+    ("Dynasty",          "Play on as your heir",         lambda s, c, f, p, pe: s.get("generation", 1) >= 2),
     ("Private Student",  "Go to a private school",       lambda s, c, f, p, pe: bool(s.get("private_school"))),
 ]
 
@@ -118,11 +123,10 @@ def belongings(state):
         lines.append(("Home", f"Worth about ${h.get('value', 0) if isinstance(h, dict) else h}"))
     for p in state.get("pets", []):
         lines.append((f"{p['name']} the {p['kind']}", f"{p['age']} years old"))
-    b = state.get("business")
-    if b:
-        lines.append((f"{b['name']} business", f"Owned {b['years']} years"))
+    for b in state.get("businesses", []):
+        lines.append((b["name"], f"Worth ${b['value']:,}, owned {b['years']} years"))
     if state.get("private_school"):
-        lines.append(("Private school place", "+1 Academic a year"))
+        lines.append(("Private school place", state.get("school_diploma") or "Studying hard"))
     if state.get("record"):
         lines.append(("Criminal record", f"{state['record']} offence(s)"))
     return lines

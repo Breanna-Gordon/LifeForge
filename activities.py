@@ -1,3 +1,6 @@
+import worldjobs
+import sports
+from constants import fmt
 import random
 import pygame
 from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
@@ -70,7 +73,12 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
     skills = state.setdefault("skills", {})
     mine = state["activities"]
     views = lifestyle.view_rects(rect)
-    for key, label in (("clubs", "Clubs"), ("outings", "Outings"), ("life", "Lifestyle")):
+    only_life = state.get("_tab") == "Lifestyle"
+    if only_life:
+        view = state["act_view"] = "life"
+    elif view == "life":
+        view = state["act_view"] = "clubs"
+    for key, label in (() if only_life else (("clubs", "Clubs"), ("outings", "Outings"), ("sports", "Sports"))):
         vr = views[key]
         on = view == key
         draw_rounded_rect(screen, ACCENT if on else (WHITE if not vr.collidepoint(mouse_pos) else (235, 235, 240)), vr, radius=8)
@@ -78,6 +86,10 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
         draw_text(screen, label, small_font, INK, vr.centerx, vr.centery, centre=True)
     if view == "life":
         res = lifestyle.draw_lifestyle(screen, rect, mouse_pos, state, age, career or {})
+        res["views"] = views
+        return res
+    if view == "sports":
+        res = sports.draw_sports(screen, rect, mouse_pos, state, age, career or {})
         res["views"] = views
         return res
     cols, row_h = 2, 36
@@ -105,7 +117,7 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
                     sub += f"  ({o['skill'].title()} lvl {skills[o['skill']]})"
             draw_text(screen, sub, small_font, DARK_GREY, r.x + 10, r.y + 18)
             n_done = state["actions_used"].get("__out__" + o["id"], 0)
-            label = ("Free" if cost == 0 else ("Ask parents" if age < 18 else f"${cost}")) + (f"  x{n_done}" if n_done else "")
+            label = ("Free" if cost == 0 else (("Parents pay" if o["id"] in state.get("parent_pays", []) else "Ask parents") if age < 18 else f"${fmt(cost)}")) + (f"  x{n_done}" if n_done else "")
             draw_text(screen, label, small_font, GREEN if cost == 0 and not done else BLACK,
                       r.right - 10 - small_font.size(label)[0], r.y + 2)
             outs.append((o, r))
@@ -147,6 +159,9 @@ def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, l
         if vr.collidepoint(mx, my):
             state["act_view"] = key
             return
+    if state.get("act_view") == "sports":
+        sports.handle_sports_click(mx, my, buttons, state, age, career or {}, log)
+        return
     if state.get("act_view") == "life":
         lifestyle.handle_lifestyle_click(mx, my, buttons, state, age, career or {}, friends, make_friend, log)
         return
@@ -161,19 +176,23 @@ def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, l
         if cost and age < 18:
             # a young person asks their parents to pay for lessons
             ask = "__askpay__" + o["id"]
-            if state["actions_used"].get(ask) == "no":
+            if o["id"] in state.get("parent_pays", []):
+                cost = 0
+            elif state["actions_used"].get(ask) == "no":
                 log(f"Your parents already said no to {o['name'].lower()} this year.")
                 return
-            if not state.get("parents_ok"):
-                log("There's nobody to pay for lessons right now.")
-                return
-            chance = {"Struggling": 0.35, "Comfortable": 0.75, "Wealthy": 0.95}[state.get("family_wealth", "Comfortable")]
-            if random.random() > chance:
-                state["actions_used"][ask] = "no"
-                log(f"You asked your parents to pay for {o['name'].lower()}, but they said not this year.")
-                return
-            log(f"Your parents agreed to pay for {o['name'].lower()}.")
-            cost = 0
+            if cost:
+                if not state.get("parents_ok"):
+                    log("There's nobody to pay for lessons right now.")
+                    return
+                chance = worldjobs.tier_value(state, {"Struggling": 0.35, "Comfortable": 0.75, "Wealthy": 0.95})
+                if random.random() > chance:
+                    state["actions_used"][ask] = "no"
+                    log(f"You asked your parents to pay for {o['name'].lower()}, but they said not this year.")
+                    return
+                state.setdefault("parent_pays", []).append(o["id"])
+                log(f"Your parents agreed to pay for {o['name'].lower()}, and will keep paying for it.")
+                cost = 0
         elif state["money"] < cost:
             return
         n_before = state["actions_used"].get(flag, 0)
@@ -188,7 +207,7 @@ def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, l
             lvl = max(skills.get("singing", 0), skills.get("music", 0))
             got = random.randint(6, 12) + 5 * lvl
             state["money"] += got
-            log(f"Busked in the street and earned ${got}.")
+            log(f"Busked in the street and earned ${fmt(got)}.")
         elif o.get("skill"):
             skills[o["skill"]] = skills.get(o["skill"], 0) + 1
             log(f"{o['name']}: {o['skill'].title()} is now level {skills[o['skill']]}.")

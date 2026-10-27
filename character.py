@@ -56,211 +56,86 @@ def pick_color_from_wheel(local_x, local_y, diameter):
     return (int(r * 255), int(g * 255), int(b * 255)), (local_x, local_y)
 
 async def character_selection_screen(screen):
-    background = load_image("images/selection_background.jpg", (SCREEN_WIDTH, SCREEN_HEIGHT))
-    fallback_bg = make_vertical_gradient(SCREEN_WIDTH, SCREEN_HEIGHT,
-                                          (232, 222, 248), (255, 255, 255))
-
+    """Name, gender, who you're attracted to, and a full look editor.
+    Returns (gender, name, hair_colour, hairstyle, skin_tone, facial_hair, orientation, feat)."""
+    import appearance
+    fallback_bg = make_vertical_gradient(SCREEN_WIDTH, SCREEN_HEIGHT, (232, 222, 248), (255, 255, 255))
     name = ""
-    gender = None
-    skin_index = 2
-    hair_colour = DEFAULT_HAIR_COLOUR
-    hairstyle_index = 2  # "Short"
-    facial_hair_index = 0  # "None"
-    orient_index = 2  # Everyone
+    gender = "Female"
+    look = appearance.default_look(gender)
+    ed = {"tab": 0}
+    orient_index = 2
     ORIENTS = [("Men", "Men"), ("Women", "Women"), ("Everyone", "Both")]
     clock = pygame.time.Clock()
-
-    name_box = pygame.Rect(300, 60, 300, 34)
-    avatar_rect = pygame.Rect(385, 98, 130, 130)
-
-    male_rect = pygame.Rect(330, 230, 110, 32)
-    female_rect = pygame.Rect(460, 230, 110, 32)
-
-    skin_gap = 34
-    skin_radius = 10
-    skin_y = 292
-    skin_start_x = SCREEN_WIDTH // 2 - (len(SKIN_TONES) - 1) * skin_gap // 2
-
-    wheel_diameter = 100
-    wheel_rect = pygame.Rect(0, 0, wheel_diameter, wheel_diameter)
-    wheel_rect.center = (SCREEN_WIDTH // 2, 380)
-    wheel_surface = make_color_wheel(wheel_diameter)
-    wheel_marker = (wheel_diameter / 2, wheel_diameter / 2)  # starts centred (dark/low-sat)
-
-    style_button_width = 130
-    style_gap = 14
-    style_cols = 4
-    style_total = style_cols * style_button_width + (style_cols - 1) * style_gap
-    style_start_x = (SCREEN_WIDTH - style_total) // 2
-    style_row1_y = 462
-    style_row2_y = 496
-    style_height = 28
-
-    facial_button_width = 130
-    facial_gap = 14
-    facial_total = len(FACIAL_HAIR_STYLES) * facial_button_width + (len(FACIAL_HAIR_STYLES) - 1) * facial_gap
-    facial_start_x = (SCREEN_WIDTH - facial_total) // 2
-    facial_y = 554
-    facial_height = 26
-
-    orient_y = 604
-    orient_w = 130
-    orient_start_x = (SCREEN_WIDTH - (3 * orient_w + 2 * 14)) // 2
-    continue_rect = pygame.Rect(325, 642, 250, 40)
-
-    def style_rect(index):
-        row = index // style_cols
-        col = index % style_cols
-        y = style_row1_y if row == 0 else style_row2_y
-        x = style_start_x + col * (style_button_width + style_gap)
-        return pygame.Rect(x, y, style_button_width, style_height)
+    name_box = pygame.Rect(60, 96, 300, 34)
+    avatar_rect = pygame.Rect(70, 150, 280, 340)
+    male_rect = pygame.Rect(70, 505, 130, 32)
+    female_rect = pygame.Rect(220, 505, 130, 32)
+    continue_rect = pygame.Rect(SCREEN_WIDTH // 2 - 130, 640, 260, 44)
+    editor_rect = pygame.Rect(420, 100, 440, 480)
+    picked = {"gender": False}
 
     def current_selection():
-        facial = FACIAL_HAIR_STYLES[facial_hair_index] if gender == "Male" else "None"
-        return (gender, name.strip(), hair_colour,
-                HAIRSTYLES[hairstyle_index], SKIN_TONES[skin_index], facial, ORIENTS[orient_index][1])
+        facial = look["facial"] if gender == "Male" else "None"
+        return (gender, name.strip(), tuple(look["hair"]), look["style"], tuple(look["skin"]), facial,
+                ORIENTS[orient_index][1], appearance.feat_of(look))
 
     while True:
+        mouse_pos = pygame.mouse.get_pos()
+        screen.blit(fallback_bg, (0, 0))
+        draw_text(screen, "Create Your Character", title_font, INK, SCREEN_WIDTH // 2, 40, centre=True)
+        draw_text(screen, "Name", small_font, MUTED, name_box.x, name_box.y - 18)
+        pygame.draw.line(screen, OUTLINE, (name_box.x, name_box.bottom), (name_box.right, name_box.bottom), 2)
+        draw_text(screen, (name or "Type your name") + ("|" if (pygame.time.get_ticks() // 500) % 2 else ""), font,
+                  MUTED if not name else INK, name_box.x + 2, name_box.y + 6)
+        appearance.draw_look(screen, avatar_rect, gender, look)
+        for label, rect in (("Male", male_rect), ("Female", female_rect)):
+            on = gender == label
+            if on:
+                draw_rounded_rect(screen, ACCENT, rect, radius=16)
+            draw_text(screen, label, font, INK if on or rect.collidepoint(mouse_pos) else MUTED, rect.centerx, rect.centery, centre=True)
+        draw_text(screen, "Attracted to", small_font, MUTED, 70, 552)
+        for i, (label, _v) in enumerate(ORIENTS):
+            r = pygame.Rect(70 + i * 96, 572, 90, 26)
+            on = i == orient_index
+            if on:
+                draw_rounded_rect(screen, ACCENT, r, radius=8)
+            draw_text(screen, label, small_font, INK if on or r.collidepoint(mouse_pos) else MUTED, r.centerx, r.centery, centre=True)
+        hits = appearance.draw_editor(screen, editor_rect, mouse_pos, look, gender, ed)
+        enabled = bool(name.strip())
+        draw_rounded_rect(screen, (ACCENT if continue_rect.collidepoint(mouse_pos) else GREEN) if enabled else LIGHT_GREY, continue_rect, radius=12)
+        draw_text(screen, "Continue", font, INK, continue_rect.centerx, continue_rect.centery, centre=True)
+        draw_text(screen, "Press ESC to return to the menu. You can change your look later by clicking your portrait.", small_font, MUTED,
+                  SCREEN_WIDTH // 2, 692, centre=True)
+        pygame.display.flip()
+        clock.tick(60)
+        await asyncio.sleep(0)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 raise SystemExit
-
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    return None, None, None, None, None, None, None
+                    return None, None, None, None, None, None, None, None
                 if event.key == pygame.K_BACKSPACE:
                     name = name[:-1]
-                elif event.key == pygame.K_RETURN and name.strip() and gender:
+                elif event.key == pygame.K_RETURN and name.strip():
                     return current_selection()
-                elif event.unicode.isprintable() and len(name) < 20:
+                elif event.unicode and event.unicode.isprintable() and len(name) < 20:
                     name += event.unicode
-
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mx, my = event.pos
-
-                if male_rect.collidepoint(mx, my):
+                if male_rect.collidepoint(mx, my) and gender != "Male":
                     gender = "Male"
-                elif female_rect.collidepoint(mx, my):
+                    look["style"] = "Short"
+                elif female_rect.collidepoint(mx, my) and gender != "Female":
                     gender = "Female"
-
-                for i in range(len(SKIN_TONES)):
-                    sx = skin_start_x + i * skin_gap
-                    if (mx - sx) ** 2 + (my - skin_y) ** 2 <= skin_radius ** 2:
-                        skin_index = i
-
-                if wheel_rect.collidepoint(mx, my):
-                    result = pick_color_from_wheel(mx - wheel_rect.x, my - wheel_rect.y, wheel_diameter)
-                    if result:
-                        hair_colour, wheel_marker = result
-
-                for i in range(len(HAIRSTYLES)):
-                    if style_rect(i).collidepoint(mx, my):
-                        hairstyle_index = i
-
-                if gender == "Male":
-                    for i in range(len(FACIAL_HAIR_STYLES)):
-                        bx = facial_start_x + i * (facial_button_width + facial_gap)
-                        rect = pygame.Rect(bx, facial_y, facial_button_width, facial_height)
-                        if rect.collidepoint(mx, my):
-                            facial_hair_index = i
-
+                    look["style"] = "Long"
+                    look["facial"] = "None"
                 for i in range(3):
-                    if pygame.Rect(orient_start_x + i * (orient_w + 14), orient_y, orient_w, 26).collidepoint(mx, my):
+                    if pygame.Rect(70 + i * 96, 572, 90, 26).collidepoint(mx, my):
                         orient_index = i
-
-                if continue_rect.collidepoint(mx, my) and name.strip() and gender:
+                appearance.click_editor(mx, my, hits, look, gender, ed)
+                if continue_rect.collidepoint(mx, my) and name.strip():
                     return current_selection()
-
-        if background:
-            screen.blit(background, (0, 0))
-        else:
-            screen.blit(fallback_bg, (0, 0))
-
-        draw_text(screen, "Create Your Character", title_font, INK,
-                  SCREEN_WIDTH // 2, 30, centre=True)
-
-        draw_text(screen, "Name:", font, INK, 210, 68)
-        draw_rounded_rect(screen, WHITE, name_box, radius=8)
-        pygame.draw.rect(screen, OUTLINE, name_box, 2, border_radius=8)
-        draw_text(screen, name or "Type here...", font,
-                  DARK_GREY if not name else BLACK, name_box.x + 10, name_box.y + 6)
-
-        draw_rounded_rect(screen, WHITE, avatar_rect, radius=12)
-        pygame.draw.rect(screen, OUTLINE, avatar_rect, 2, border_radius=12)
-        if gender:
-            draw_avatar(screen, avatar_rect, gender, hair_colour,
-                       HAIRSTYLES[hairstyle_index], SKIN_TONES[skin_index],
-                       FACIAL_HAIR_STYLES[facial_hair_index] if gender == "Male" else "None")
-        else:
-            draw_text(screen, "Pick a gender", small_font, DARK_GREY,
-                      avatar_rect.centerx, avatar_rect.centery, centre=True)
-
-        mouse_pos = pygame.mouse.get_pos()
-
-        for label, rect in (("Male", male_rect), ("Female", female_rect)):
-            selected = gender == label
-            hovered = rect.collidepoint(mouse_pos)
-            fill_colour = GREEN if selected else (ACCENT if hovered else WHITE)
-            draw_rounded_rect(screen, fill_colour, rect, radius=16)
-            pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=16)
-            draw_text(screen, label, small_font, INK, rect.centerx, rect.centery, centre=True)
-
-        draw_text(screen, "Skin Tone", small_font, DARK_GREY, SCREEN_WIDTH // 2, skin_y - 18, centre=True)
-        for i, tone in enumerate(SKIN_TONES):
-            sx = skin_start_x + i * skin_gap
-            pygame.draw.circle(screen, tone, (sx, skin_y), skin_radius)
-            border_colour = ACCENT if i == skin_index else BLACK
-            pygame.draw.circle(screen, border_colour, (sx, skin_y), skin_radius, 3)
-
-        draw_text(screen, "Hair Colour", small_font, DARK_GREY, SCREEN_WIDTH // 2, wheel_rect.top - 14, centre=True)
-        screen.blit(wheel_surface, wheel_rect)
-        marker_x = wheel_rect.x + int(wheel_marker[0])
-        marker_y = wheel_rect.y + int(wheel_marker[1])
-        pygame.draw.circle(screen, WHITE, (marker_x, marker_y), 6, 2)
-        pygame.draw.circle(screen, BLACK, (marker_x, marker_y), 6, 1)
-
-        draw_text(screen, "Hairstyle", small_font, DARK_GREY, SCREEN_WIDTH // 2, style_row1_y - 16, centre=True)
-        for i, style in enumerate(HAIRSTYLES):
-            rect = style_rect(i)
-            selected = i == hairstyle_index
-            hovered = rect.collidepoint(mouse_pos)
-            fill_colour = ACCENT if selected else (LIGHT_GREY if not hovered else (235, 235, 240))
-            draw_rounded_rect(screen, fill_colour, rect, radius=8)
-            pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=8)
-            draw_text(screen, style, small_font, INK, rect.centerx, rect.centery, centre=True)
-
-        if gender == "Male":
-            draw_text(screen, "Facial Hair", small_font, DARK_GREY, SCREEN_WIDTH // 2, facial_y - 16, centre=True)
-            for i, style in enumerate(FACIAL_HAIR_STYLES):
-                bx = facial_start_x + i * (facial_button_width + facial_gap)
-                rect = pygame.Rect(bx, facial_y, facial_button_width, facial_height)
-                selected = i == facial_hair_index
-                hovered = rect.collidepoint(mouse_pos)
-                fill_colour = ACCENT if selected else (LIGHT_GREY if not hovered else (235, 235, 240))
-                draw_rounded_rect(screen, fill_colour, rect, radius=8)
-                pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=8)
-                draw_text(screen, style, small_font, INK, rect.centerx, rect.centery, centre=True)
-
-        draw_text(screen, "Attracted to", small_font, DARK_GREY, SCREEN_WIDTH // 2, orient_y - 16, centre=True)
-        for i, (label, _v) in enumerate(ORIENTS):
-            rect = pygame.Rect(orient_start_x + i * (orient_w + 14), orient_y, orient_w, 26)
-            selected = i == orient_index
-            fill_colour = ACCENT if selected else (LIGHT_GREY if not rect.collidepoint(mouse_pos) else (235, 235, 240))
-            draw_rounded_rect(screen, fill_colour, rect, radius=8)
-            pygame.draw.rect(screen, OUTLINE, rect, 2, border_radius=8)
-            draw_text(screen, label, small_font, INK, rect.centerx, rect.centery, centre=True)
-
-        enabled = bool(name.strip() and gender)
-        continue_hovered = continue_rect.collidepoint(mouse_pos)
-        fill_colour = (ACCENT if continue_hovered else GREEN) if enabled else LIGHT_GREY
-        draw_rounded_rect(screen, fill_colour, continue_rect, radius=12)
-        pygame.draw.rect(screen, OUTLINE, continue_rect, 2, border_radius=12)
-        draw_text(screen, "Continue", font, INK, continue_rect.centerx, continue_rect.centery, centre=True)
-
-        draw_text(screen, "Press ESC to return to the menu.",
-                  small_font, DARK_GREY, SCREEN_WIDTH // 2, 690, centre=True)
-
-        pygame.display.flip()
-        clock.tick(60)
-        await asyncio.sleep(0)

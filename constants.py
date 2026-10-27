@@ -154,3 +154,21 @@ def make_vertical_gradient(width, height, top_colour, bottom_colour):
         )
         pygame.draw.line(surface, colour, (0, y), (width, y))
     return surface
+
+
+def fmt(n):
+    """Money with thousands separators: 12345 -> 12,345."""
+    try:
+        return f"{int(n):,}"
+    except (TypeError, ValueError):
+        return str(n)
+
+def fmt_short(n):
+    """Compact money for tight spaces: 1250000 -> 1.25M, 48200 -> 48.2k."""
+    n = int(n)
+    a = abs(n)
+    if a >= 1_000_000:
+        return f"{n / 1_000_000:.2f}M"
+    if a >= 10_000:
+        return f"{n / 1000:.1f}k"
+    return f"{n:,}"

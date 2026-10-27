@@ -1,3 +1,4 @@
+from constants import fmt
 import random
 
 # Situational events. Each one only shows up when its condition fits your
@@ -8,8 +9,8 @@ def _job(c): return c["career"]["job"] is not None
 def _uni(c): return c["career"]["enrolled"]
 def _partner(c): return c["partner"] is not None
 def _friends(c): return len(c["friends"]) > 0
-def _broke(c): return c["money"] < 40
-def _comfortable(c): return c["money"] >= 150
+def _broke(c): return c["money"] < 400
+def _comfortable(c): return c["money"] >= 3000
 
 def _no_job(c): return c["career"]["job"] is None
 def _not_uni(c): return not c["career"]["enrolled"]
@@ -26,7 +27,7 @@ REQUIRES = {
     "You're offered a leadership role at work.": _job,
     "You are offered a weekend job.": _no_job,
     "You receive an offer for further education.": lambda c: _not_uni(c) and c["career"].get("education") != "PhD",
-    "You have saved enough for a major purchase.": lambda c: c["money"] >= 100,
+    "You have saved enough for a major purchase.": lambda c: c["money"] >= 2000,
     "A relationship starts to get serious.": _unpartnered_married,
     "A sibling wants to swap toys.": _has_sibling,
     "You're asked to share your life story with grandchildren.": _has_child,
@@ -202,7 +203,7 @@ def relationship_events(ctx):
                 "Help out": {"person": (c, {"closeness": 6, "trust": 2}), "money": -30},
                 "Encourage them to manage alone": {"person": (c, {"closeness": -2}), "mental": 1}}))
     for p in ctx.get("people", []):
-        if p["category"] == "family" and p["closeness"] < 35 and not p.get("is_child"):
+        if p["category"] == "family" and p["closeness"] < 35 and not (p.get("is_child") or p.get("is_grand")):
             out.append((f"Your {p['relation'].lower()}, {p['name']}, feels distant from you.", {
                 "Reach out": {"person": (p, {"closeness": 8, "trust": 3}), "social": 1},
                 "Leave it": {"person": (p, {"closeness": -3}), "mental": 0}}))
@@ -253,7 +254,7 @@ def describe(consequence):
             continue
         if v == 0: continue
         if k == "money":
-            parts.append(f"{'+' if v>0 else '-'}${abs(v)}")
+            parts.append(f"{'+' if v>0 else '-'}${fmt(abs(v))}")
         else:
             parts.append(f"{names[k]} {v:+d}")
     return ", ".join(parts) if parts else "No change"

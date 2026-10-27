@@ -1,3 +1,4 @@
+from constants import fmt
 import random
 import pygame
 from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
@@ -6,6 +7,7 @@ from constants import (
     font, small_font, draw_text, draw_rounded_rect
 )
 from avatar import draw_avatar
+import worldjobs
 
 NAME_POOL_MALE = ["James", "Daniel", "Michael", "David", "Ethan", "Noah",
                   "Lucas", "Henry", "Jack", "Oliver", "Leo", "Samuel"]
@@ -17,7 +19,41 @@ CATEGORY_COLOURS = {
     "friend": (76, 175, 120),
     "partner": (220, 90, 140),
     "enemy": (215, 80, 80),
+    "classmate": (230, 165, 60),
 }
+
+GROUPS = [("romance", "Romance"), ("family", "Family"), ("friends", "Friends"),
+          ("classmates", "Classmates"), ("rivals", "Rivals")]
+
+def group_of(p):
+    cat = p["category"]
+    if cat == "partner" or str(p.get("relation", "")).startswith("Ex"):
+        return "romance"
+    return {"family": "family", "friend": "friends", "classmate": "classmates", "enemy": "rivals"}.get(cat, "friends")
+
+def group_members(group, people, friends, partner, classmates):
+    pool = ([partner] if partner else []) + list(people) + list(friends) + list(classmates)
+    out = [x for x in pool if group_of(x) == group]
+    if group == "romance":
+        out.sort(key=lambda x: 0 if x["category"] == "partner" else 1)
+    return out
+
+def refresh_classmates(state, age, in_school, friends):
+    """A school year brings a class of about six people your age; each year
+    a few move on and new ones arrive."""
+    cl = state.setdefault("classmates", [])
+    if not in_school:
+        cl.clear()
+        return
+    for c in cl:
+        c["age"] = c.get("age", age) + 1 if c.get("_aged_to", -1) != age else c.get("age", age)
+        c["_aged_to"] = age
+    for c in random.sample(cl, min(len(cl), 2)):
+        cl.remove(c)
+    while len(cl) < 6:
+        c = make_person("Classmate", "classmate", closeness=15, age=near_age(age))
+        c["trust"] = 20
+        cl.append(c)
 STAT_KEYS = ["looks", "social", "academic", "athletic", "mental"]
 STAT_NAMES = {"looks": "Looks", "social": "Social", "academic": "Academic", "athletic": "Athletic", "mental": "Mental"}
 STAT_BAR_COLOURS = {"looks": (236, 130, 178), "social": (160, 100, 220), "academic": (70, 170, 150),
@@ -36,11 +72,11 @@ def random_stats(base=None, spread=16):
 # single person, but lets you actually talk to someone more than once.
 MAX_USES_PER_PERSON_ACTION = 2
 GIFT_COST = 15
-PARTNER_MIN_AGE = 16
+PARTNER_MIN_AGE = 13
 MARRY_MIN_AGE = 18
-PROPOSAL_COST = 50
+PROPOSAL_COST = 500      # the cheapest ring; see romance.RINGS
 MAX_CHILDREN = 4
-CHILD_COST = 12
+CHILD_COST = 3000
 
 CLASHES = {("hot-tempered", "hot-tempered"): -20, ("jealous", "jealous"): -10, ("jealous", "outgoing"): -12,
            ("hot-tempered", "shy"): -12, ("hot-tempered", "jealous"): -10}
@@ -122,18 +158,25 @@ def random_look(gender, age=30, skin=None, hair=None):
     facial = "None"
     if gender == "Male" and age >= 20:
         facial = random.choice(["None", "None", "Stubble", "Beard", "Moustache"])
+    feat = {"eyes": random.choices(["Brown", "Dark", "Blue", "Green", "Hazel", "Grey", "Amber"], [30, 14, 14, 8, 10, 4, 4])[0],
+            "eye_shape": random.choice(["Almond", "Almond", "Round", "Wide", "Narrow", "Sleepy"]),
+            "brows": random.choice(["Natural", "Natural", "Thick", "Thin", "Arched", "Straight"]),
+            "lips": random.choice(["Natural", "Natural", "Full", "Thin"]),
+            "outfit": random.randint(0, 7)}
     return {"hair": list(hair or random.choice(HAIR_COLOURS)), "style": style,
-            "skin": list(skin or random.choice(SKIN_TONES)), "facial": facial}
+            "skin": list(skin or random.choice(SKIN_TONES)), "facial": facial, "feat": feat}
 
 def occupation(p):
-    a = p.get("age", 30)
-    if a < 5: return "Too young for school"
-    if a < 18: return "Student"
-    if a >= 66: return "Retired"
-    return p.get("job_title", "office worker").capitalize()
+    return worldjobs.occupation_text(p)
 
 def make_person(relation, category, gender=None, closeness=60, age=30, skin=None, hair=None):
     gender = gender or random.choice(["Male", "Female"])
+    p = _blank_person(relation, category, gender, closeness, age, skin, hair)
+    if age >= 18:
+        worldjobs.assign_job(p)
+    return p
+
+def _blank_person(relation, category, gender, closeness, age, skin, hair):
     return {
         "name": random_name(gender),
         "gender": gender,
@@ -156,6 +199,56 @@ def make_person(relation, category, gender=None, closeness=60, age=30, skin=None
         "stats": random_stats(),
     }
 
+def finances(p):
+    """Income, savings and debt for anyone, made up on first use from their
+    age and stats (older saves get it too). Kids have none of their own."""
+    f = p.get("fin")
+    if f is None and p.get("age", 30) >= 18:
+        worldjobs.assign_job(p)
+        f = p.get("fin")
+    if f is None:
+        age = p.get("age", 30)
+        s = p.get("stats") or {}
+        score = (s.get("academic", 50) * 0.5 + s.get("social", 50) * 0.25 + s.get("looks", 50) * 0.15 + s.get("athletic", 50) * 0.1)
+        pay = 0
+        if age >= 18:
+            pay = int(round((14000 + (max(0, score - 30) / 70) ** 2 * 110000 + random.randint(-3000, 6000)) / 100.0) * 100)
+            if age >= 66:
+                pay //= 2
+        years = max(0, min(age, 66) - 18)
+        savings = int(pay * years * random.uniform(0.0, 0.25)) if age >= 18 else 0
+        debt = random.choice([0, 0, 0, random.randint(2000, 30000)]) if 18 <= age <= 35 else 0
+        f = p["fin"] = {"pay": pay, "savings": savings, "debt": debt}
+    return f
+
+def wealth_tier(p):
+    f = finances(p)
+    if p.get("age", 30) < 18:
+        return "Dependent", (140, 140, 160)
+    net = f["savings"] - f["debt"]
+    pay = f["pay"]
+    if pay >= 150000 or net >= 300000: return "Rich", (210, 150, 30)
+    if pay >= 70000 or net >= 100000: return "Well off", (90, 160, 80)
+    if pay >= 30000: return "Comfortable", (80, 150, 110)
+    if pay >= 15000: return "Getting by", (150, 150, 90)
+    return "Struggling", (200, 100, 80)
+
+def money_lines(p):
+    f = finances(p)
+    tier, col = wealth_tier(p)
+    if p.get("age", 30) < 18:
+        return tier, col, "Lives off family money", ""
+    if f.get("jobless"):
+        inc = "Out of work"
+    else:
+        inc = f"{'Pension' if p.get('age', 30) >= 66 else 'Income'} ${fmt(f['pay'])}/yr"
+    sav = f"Savings ${fmt(f['savings'])}" + (f"   Debt ${fmt(f['debt'])}" if f["debt"] else "")
+    if p.get("merged"):
+        sav += "   (joint with you)"
+    elif p.get("prenup"):
+        sav += "   (prenup)"
+    return tier, col, inc, sav
+
 def remember(person, age, text):
     """Keeps a short list of shared memories shown on the person's profile."""
     h = person.setdefault("history", [])
@@ -168,13 +261,15 @@ def ensure_profiles(everyone, player_age):
         if "gender" not in p:
             p["gender"] = "Female" if p["name"] in NAME_POOL_FEMALE else "Male"
         if "age" not in p:
-            base = {"Mother": 28, "Father": 31}.get(p["relation"], 55 if "Grand" in p["relation"] else player_age + 2)
-            p["age"] = base + (player_age if p["relation"] in ("Mother", "Father") or "Grand" in p["relation"] else 0)
+            base = {"Mother": 28, "Father": 31}.get(p["relation"], 55 if p["relation"].endswith(("Grandfather", "Grandmother")) else player_age + 2)
+            p["age"] = base + (player_age if p["relation"] in ("Mother", "Father") or p["relation"].endswith(("Grandfather", "Grandmother")) else 0)
         p.setdefault("attracted", random_attraction(p["gender"]))
         p.setdefault("look", random_look(p["gender"], p["age"]))
         p.setdefault("job_title", random.choice(JOB_TITLES))
         p.setdefault("history", [])
         p.setdefault("stats", random_stats())
+        if p["age"] >= 18 and p.get("job_title") not in worldjobs.BY_TITLE and not p.get("fin"):
+            worldjobs.assign_job(p)
 
 def generate_family(skin=None, hair=None, player_stats=None):
     """A starting cast of relatives with ages and a family resemblance:
@@ -192,6 +287,19 @@ def generate_family(skin=None, hair=None, player_stats=None):
     for side in ("Paternal", "Maternal"):
         family.append(kin(f"{side} Grandfather", "Male", 55, (dad if side == "Paternal" else mum) + random.randint(24, 32)))
         family.append(kin(f"{side} Grandmother", "Female", 55, (dad if side == "Paternal" else mum) + random.randint(22, 30)))
+    mum_p, dad_p = family[0], family[1]
+    roll = random.random()
+    if roll < 0.02:
+        for par in (mum_p, dad_p):
+            worldjobs.assign_job(par, worldjobs.BY_TITLE["Royal Family Member"])
+    elif roll < 0.07:
+        for par in (mum_p, dad_p):
+            worldjobs.assign_job(par, worldjobs.BY_TITLE[random.choice(["Surgeon", "Company CEO", "Investment Banker", "Film Director", "Footballer", "Landowner", "Judge"])])
+    elif roll < 0.25:
+        worldjobs.stay_home(random.choice((mum_p, dad_p)))
+    elif roll < 0.38:
+        for par in (mum_p, dad_p):
+            worldjobs.assign_job(par, worldjobs.BY_TITLE[random.choice(["Cleaner", "Shop Assistant", "Waiter", "Security Guard", "Taxi Driver", "Cashier" if False else "Shop Assistant"])])
     for _ in range(random.randint(0, 3)):
         sib_type = random.choices(["Sibling", "Half-Sibling", "Step-Sibling"], weights=[70, 20, 10])[0]
         family.append(kin(sib_type, random.choice(["Male", "Female"]), 60, random.randint(1, 9)))
@@ -287,6 +395,18 @@ def advance_relationships(people, friends, partner, log):
         person["conflict"] = max(0, person["conflict"] - (2 if person["category"] == "enemy" else 5))
         person["contacted"] = False
         person["age"] = person.get("age", 30) + 1
+        if person["age"] >= 18 and person.get("job_title") not in worldjobs.BY_TITLE and not (person.get("fin") or {}).get("pay"):
+            worldjobs.assign_job(person)
+        fin = finances(person)
+        if person["age"] >= 18 and not person.get("merged"):
+            if person["age"] == 66:
+                fin["pay"] //= 2
+            elif person["age"] < 66:
+                fin["pay"] = int(fin["pay"] * (1.025 if random.random() > 0.04 else 0.6))
+            fin["savings"] += int(fin["pay"] * random.uniform(0.0, 0.18))
+            if fin["debt"]:
+                paid = min(fin["debt"], int(fin["pay"] * 0.1))
+                fin["debt"] -= paid
         if person.get("is_child") and person["age"] == 18:
             log(f"{person['name']} turned 18.")
 
@@ -330,10 +450,10 @@ def all_people(people, friends, partner):
     combined.extend(friends)
     return combined
 
-def get_people_layout(rect, people, friends, partner, scroll_offset):
+def get_people_layout(rect, people, friends, partner, scroll_offset, classmates=(), group="friends"):
     """Shared layout math for the People tab — used by both the drawing
     code and the click handler so they can never fall out of sync."""
-    combined = all_people(people, friends, partner)
+    combined = group_members(group, people, friends, partner, classmates)
     row_h = 58
     visible_count = max(rect.height // row_h, 1)
     scroll_offset = max(0, min(scroll_offset, max(len(combined) - visible_count, 0)))
@@ -355,21 +475,32 @@ def get_people_layout(rect, people, friends, partner, scroll_offset):
 
     return rows, combined, scroll_offset
 
+def group_tab_rects(rect):
+    w, gap = 130, 4
+    return {key: pygame.Rect(rect.x + n * (w + gap), rect.y, w, 26) for n, (key, _l) in enumerate(GROUPS)}
+
+def action_rects(rect):
+    y = rect.y + 30
+    return (pygame.Rect(rect.x, y, 200, 30), pygame.Rect(rect.x + 208, y, 200, 30),
+            pygame.Rect(rect.x + 416, y, 200, 30), pygame.Rect(rect.x + 416, y, 200, 30))
+
 def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
                     mouse_pos, state, age, meet_label):
     actions_used = state["actions_used"]
 
-    meet_rect = pygame.Rect(rect.x, rect.y, 162, 32)
-    partner_rect = pygame.Rect(rect.x + 170, rect.y, 162, 32)
-    baby_rect = pygame.Rect(rect.x + 340, rect.y, 162, 32)
-    ask_rect = pygame.Rect(rect.x + 510, rect.y, 162, 32)
+    group = state.setdefault("_ptab", "friends")
+    classmates = state.setdefault("classmates", [])
+    tabs = group_tab_rects(rect)
+    for key, label in GROUPS:
+        r = tabs[key]
+        n = len(group_members(key, people, friends, partner, classmates))
+        on = key == group
+        draw_rounded_rect(screen, ACCENT if on else (WHITE if not r.collidepoint(mouse_pos) else (235, 235, 240)), r, radius=8)
+        pygame.draw.rect(screen, OUTLINE, r, 2, border_radius=8)
+        draw_text(screen, f"{label} ({n})", small_font, INK, r.centerx, r.centery, centre=True)
 
-    meet_done = False
-    meet_hovered = meet_rect.collidepoint(mouse_pos)
-    fill = LIGHT_GREY if (meet_done or state["actions_remaining"] <= 0) else (ACCENT if meet_hovered else WHITE)
-    draw_rounded_rect(screen, fill, meet_rect, radius=8)
-    pygame.draw.rect(screen, OUTLINE, meet_rect, 2, border_radius=8)
-    draw_text(screen, meet_label, small_font, INK, meet_rect.centerx, meet_rect.centery, centre=True)
+    meet_rect, partner_rect, baby_rect, ask_rect = action_rects(rect)
+    no_budget = state["actions_remaining"] <= 0
 
     def small_btn(r, label, disabled):
         hovered = r.collidepoint(mouse_pos)
@@ -378,28 +509,38 @@ def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
         pygame.draw.rect(screen, OUTLINE, r, 2, border_radius=8)
         draw_text(screen, label, small_font, INK, r.centerx, r.centery, centre=True)
 
-    no_budget = state["actions_remaining"] <= 0
-    if partner is None:
-        old_enough = age >= PARTNER_MIN_AGE
-        label = "Look for a Partner" if old_enough else f"Partner (from age {PARTNER_MIN_AGE})"
-        small_btn(partner_rect, label, not old_enough or no_budget)
-    elif not partner.get("married"):
-        small_btn(partner_rect, f"Propose (${PROPOSAL_COST})", age < MARRY_MIN_AGE or no_budget
-                  or actions_used.get("__propose__", 0) >= 1 or state["money"] < PROPOSAL_COST)
-    else:
-        small_btn(partner_rect, "Married", True)
-    if partner is not None and age < 46 and len(children_of(people)) < MAX_CHILDREN:
-        same = partner.get("gender") == state.get("gender")
-        small_btn(baby_rect, "Adopt a child" if same else "Try for a baby",
-                  age < MARRY_MIN_AGE or no_budget or actions_used.get("__baby__", 0) >= 1)
-    small_btn(ask_rect, "Ask Family for $", quick_ask_target(people, state) is None)
+    if group == "friends":
+        small_btn(meet_rect, meet_label, no_budget)
+    elif group == "classmates":
+        small_btn(meet_rect, "Meet a classmate", no_budget or not state.get("_in_school"))
+        if not state.get("_in_school"):
+            draw_text(screen, "Classmates appear while you're at school or university.", small_font, DARK_GREY, partner_rect.x, partner_rect.y + 8)
+    elif group == "family":
+        small_btn(meet_rect, "Ask Family for $", quick_ask_target(people, state) is None)
+    elif group == "romance":
+        if partner is None:
+            old_enough = age >= PARTNER_MIN_AGE
+            label = "Look for a Partner" if old_enough else f"Partner (from age {PARTNER_MIN_AGE})"
+            small_btn(meet_rect, label, not old_enough or no_budget)
+        elif partner.get("engaged"):
+            small_btn(meet_rect, "Plan the wedding", False)
+        elif not partner.get("married"):
+            small_btn(meet_rect, "Propose", age < MARRY_MIN_AGE or no_budget or partner.get("status") == "situationship"
+                      or actions_used.get("__propose__", 0) >= 1 or state["money"] < PROPOSAL_COST)
+        else:
+            small_btn(meet_rect, "Married", True)
+        if partner is not None and age < 46 and len(children_of(people)) < MAX_CHILDREN:
+            same = partner.get("gender") == state.get("gender")
+            small_btn(partner_rect, "Adopt a child" if same else "Try for a baby",
+                      age < MARRY_MIN_AGE or no_budget or actions_used.get("__baby__", 0) >= 1 or partner.get("status") == "situationship")
 
-    list_rect = pygame.Rect(rect.x, rect.y + 42, rect.width, rect.height - 42)
-    rows, combined, scroll_offset = get_people_layout(list_rect, people, friends, partner, scroll_offset)
+    list_rect = pygame.Rect(rect.x, rect.y + 66, rect.width, rect.height - 66)
+    rows, combined, scroll_offset = get_people_layout(list_rect, people, friends, partner, scroll_offset, classmates, group)
 
     if not combined:
-        draw_text(screen, "No relationships yet.", small_font, DARK_GREY,
-                  list_rect.centerx, list_rect.centery, centre=True)
+        empty = {"romance": "No partner or exes right now.", "family": "No family listed.", "friends": "No friends yet. Meet someone new!",
+                 "classmates": "No classmates right now.", "rivals": "No rivals. Good!"}[group]
+        draw_text(screen, empty, small_font, DARK_GREY, list_rect.centerx, list_rect.centery, centre=True)
 
     for person, row_rect, buttons in rows:
         draw_rounded_rect(screen, WHITE, row_rect, radius=8)
@@ -450,58 +591,61 @@ def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
     return scroll_offset
 
 def handle_people_click(mx, my, rect, people, friends, partner, scroll_offset, state, age):
-    """Returns "meet", "partner", "propose" or "baby" when one of the top
-    buttons is used, or None otherwise."""
+    """Returns ("tab", name), ("profile", person), ("ask", target), or
+    "meet" / "classmate" / "partner" / "propose" / "baby" when an action
+    button is used, or None otherwise."""
     actions_used = state["actions_used"]
+    group = state.setdefault("_ptab", "friends")
+    classmates = state.setdefault("classmates", [])
 
-    meet_rect = pygame.Rect(rect.x, rect.y, 162, 32)
-    partner_rect = pygame.Rect(rect.x + 170, rect.y, 162, 32)
-    baby_rect = pygame.Rect(rect.x + 340, rect.y, 162, 32)
-    ask_rect = pygame.Rect(rect.x + 510, rect.y, 162, 32)
+    for key, r in group_tab_rects(rect).items():
+        if r.collidepoint(mx, my):
+            state["_ptab"] = key
+            return ("tab", key)
+
+    meet_rect, second_rect, _x, _y = action_rects(rect)
 
     # clicking a row (outside its buttons) opens that person's profile
-    list_rect0 = pygame.Rect(rect.x, rect.y + 42, rect.width, rect.height - 42)
-    rows0, _c, _s = get_people_layout(list_rect0, people, friends, partner, scroll_offset)
-    for person, row_rect, buttons in rows0:
+    list_rect = pygame.Rect(rect.x, rect.y + 66, rect.width, rect.height - 66)
+    rows, combined, _s = get_people_layout(list_rect, people, friends, partner, scroll_offset, classmates, group)
+    for person, row_rect, buttons in rows:
         if row_rect.collidepoint(mx, my) and not any(b.collidepoint(mx, my) for b in buttons.values()):
             return ("profile", person)
 
-    if ask_rect.collidepoint(mx, my):
+    if group == "family" and meet_rect.collidepoint(mx, my):
         target = quick_ask_target(people, state)
         return ("ask", target) if target is not None else None
 
-    if state["actions_remaining"] <= 0:
-        return None
-
-    if meet_rect.collidepoint(mx, my) :
-        actions_used["__meet__"] = actions_used.get("__meet__", 0) + 1
-        state["actions_remaining"] -= 1
-        return "meet"
-
-    if (partner is None and age >= PARTNER_MIN_AGE and partner_rect.collidepoint(mx, my)
-            ):
-        actions_used["__partner__"] = actions_used.get("__partner__", 0) + 1
-        state["actions_remaining"] -= 1
-        return "partner"
-
-    if (partner is not None and not partner.get("married") and age >= MARRY_MIN_AGE
-            and partner_rect.collidepoint(mx, my) and actions_used.get("__propose__", 0) < 1
-            and state["money"] >= PROPOSAL_COST):
-        actions_used["__propose__"] = 1
-        state["actions_remaining"] -= 1
-        return "propose"
-
-    if (partner is not None and age >= MARRY_MIN_AGE and age < 46 and baby_rect.collidepoint(mx, my)
-            and actions_used.get("__baby__", 0) < 1 and len(children_of(people)) < MAX_CHILDREN):
-        actions_used["__baby__"] = 1
-        state["actions_remaining"] -= 1
-        return "baby"
-
-    list_rect = pygame.Rect(rect.x, rect.y + 42, rect.width, rect.height - 42)
-    rows, combined, _ = get_people_layout(list_rect, people, friends, partner, scroll_offset)
+    if state["actions_remaining"] > 0:
+        if group == "friends" and meet_rect.collidepoint(mx, my):
+            actions_used["__meet__"] = actions_used.get("__meet__", 0) + 1
+            state["actions_remaining"] -= 1
+            return "meet"
+        if group == "classmates" and meet_rect.collidepoint(mx, my) and state.get("_in_school"):
+            state["actions_remaining"] -= 1
+            return "classmate"
+        if group == "romance":
+            if partner is None and age >= PARTNER_MIN_AGE and meet_rect.collidepoint(mx, my):
+                actions_used["__partner__"] = actions_used.get("__partner__", 0) + 1
+                state["actions_remaining"] -= 1
+                return "partner"
+            if (partner is not None and partner.get("engaged") and meet_rect.collidepoint(mx, my)):
+                return "wedding"
+            if (partner is not None and not partner.get("married") and age >= MARRY_MIN_AGE
+                    and partner.get("status") != "situationship"
+                    and meet_rect.collidepoint(mx, my) and actions_used.get("__propose__", 0) < 1
+                    and state["money"] >= PROPOSAL_COST):
+                actions_used["__propose__"] = 1
+                state["actions_remaining"] -= 1
+                return "propose"
+            if (partner is not None and partner.get("status") != "situationship" and age >= MARRY_MIN_AGE and age < 46
+                    and second_rect.collidepoint(mx, my)
+                    and actions_used.get("__baby__", 0) < 1 and len(children_of(people)) < MAX_CHILDREN):
+                actions_used["__baby__"] = 1
+                state["actions_remaining"] -= 1
+                return "baby"
 
     for person, row_rect, buttons in rows:
-        person_key = id(person)
         for action, brect in buttons.items():
             if not brect.collidepoint(mx, my):
                 continue
@@ -516,24 +660,24 @@ def advance_deaths(people, friends, partner, state, log):
     grieve (Mental drops more for people you were close to) and may inherit
     money, a home or a keepsake. Returns the (possibly widowed) partner."""
     stats = state["stats"]
-    mult = {"Struggling": 0.6, "Comfortable": 1.0, "Wealthy": 2.0}[state.get("family_wealth", "Comfortable")]
+    mult = worldjobs.tier_value(state, {"Struggling": 0.6, "Comfortable": 1.0, "Wealthy": 2.0})
     def dies(p):
         a = p.get("age", 30)
         if a < 72: return False
         return a >= 100 or random.random() < (a - 71) * 0.025
     def inherit(p, lo, hi, house_chance):
-        gift = int(random.randint(lo, hi) * mult)
+        gift = int(random.randint(lo, hi) * mult * 300)
         state["money"] += gift
-        log(f"{p['name']} left you ${gift}.")
+        log(f"{p['name']} left you ${fmt(gift)}.")
         if random.random() < house_chance:
-            value = int(random.randint(150, 380) * (0.8 + mult / 4))
+            value = int(random.randint(150, 380) * (0.8 + mult / 4) * 800)
             if state.get("home"):
                 cash = int(value * 0.6)
                 state["money"] += cash
-                log(f"You inherited {p['name']}'s house and sold it for ${cash}.")
+                log(f"You inherited {p['name']}'s house and sold it for ${fmt(cash)}.")
             else:
                 state["home"] = {"name": f"{p['name']}'s house", "value": value}
-                log(f"You inherited {p['name']}'s house (worth about ${value}). You no longer pay rent.")
+                log(f"You inherited {p['name']}'s house (worth about ${fmt(value)}). You no longer pay rent.")
         if random.random() < 0.3 and "heirloom" not in state["owned"]:
             state["owned"].add("heirloom")
             log(f"You inherited a keepsake from {p['name']}.")
@@ -546,10 +690,10 @@ def advance_deaths(people, friends, partner, state, log):
             people.remove(p)
             log(f"Your {p['relation'].lower()}, {p['name']}, passed away at {p['age']}.")
             grieve(p)
-            if p["category"] == "family" and not p.get("is_child"):
+            if p["category"] == "family" and not (p.get("is_child") or p.get("is_grand")):
                 if p["relation"] in ("Mother", "Father"):
                     inherit(p, 60, 220, 0.4)
-                elif "Grand" in p["relation"]:
+                elif p["relation"].endswith(("Grandfather", "Grandmother")):
                     inherit(p, 20, 110, 0.2)
                 else:
                     inherit(p, 10, 60, 0.05)
@@ -564,6 +708,11 @@ def advance_deaths(people, friends, partner, state, log):
         stats["mental"] = max(0, stats["mental"] - 4)
         if partner.get("married"):
             inherit(partner, 80, 260, 0.35)
+            if not partner.get("merged"):
+                own = finances(partner)["savings"]
+                if own:
+                    state["money"] += own
+                    log(f"You inherited {partner['name']}'s savings of ${fmt(own)}.")
         return None
     return partner
 
@@ -578,15 +727,14 @@ def ask_for_money(person, state, age):
     if age >= 25 and "ambitious" in person["traits"]: chance -= 0.1
     chance = max(0.1, min(0.95, chance))
     if random.random() < chance:
-        lo, hi = (5, 12) if age < 13 else (10, 25) if age < 18 else (10, 30)
-        mult = {"Struggling": 0.6, "Comfortable": 1.0, "Wealthy": 2.0}[state.get("family_wealth", "Comfortable")]
-        amount = max(1, int(random.randint(lo, hi) * mult))
+        amount = worldjobs.ask_amount(person, age)
+        amount = max(1, int(amount * random.uniform(0.7, 1.3)))
         state["money"] += amount
         if age >= 18:
             person["closeness"] = max(0, person["closeness"] - 3)
             person["trust"] = max(0, person["trust"] - 1)
-        remember(person, age, f"Gave you ${amount}.")
-        return f"{person['name']} gave you ${amount}."
+        remember(person, age, f"Gave you ${fmt(amount)}.")
+        return f"{person['name']} gave you ${fmt(amount)}."
     person["closeness"] = max(0, person["closeness"] - 2)
     remember(person, age, "Said no when you asked for money.")
     return f"{person['name']} said no."
@@ -611,6 +759,8 @@ def stage_of(p):
         return "Tense", (225, 150, 80)
     if cat == "partner":
         if p.get("married"): return "Spouse", (220, 90, 140)
+        if p.get("status") == "situationship": return "Situationship", (178, 120, 205)
+        if p.get("engaged"): return "Engaged", (225, 90, 150)
         r = p.get("romance", 0)
         if r >= 75: return "In love", (225, 70, 120)
         if r >= 50: return "Dating", (220, 90, 140)
@@ -654,7 +804,7 @@ def person_mood(p):
 def draw_person_avatar(screen, rect, p):
     lk = p["look"]
     draw_avatar(screen, rect, p["gender"], tuple(lk["hair"]), lk["style"], tuple(lk["skin"]),
-                lk["facial"], p.get("age", 30), person_mood(p))
+                lk["facial"], p.get("age", 30), person_mood(p), lk.get("feat"))
 
 def near_age(age):
     if age < 18:
@@ -679,7 +829,7 @@ def make_prospect(state, age, traits, relation="Partner", category="partner"):
         cg = "Male" if want == "Men" else "Female" if want == "Women" else random.choice(["Male", "Female"])
         if random.random() < 0.12:
             cg = random.choice(["Male", "Female"])
-        cand = make_person(relation, category, cg, closeness=45, age=max(16 if age >= 16 else 5, near_age(age)))
+        cand = make_person(relation, category, cg, closeness=45, age=max(13 if age >= 13 else 5, near_age(age)))
         if is_attracted(cand["attracted"], gender):
             break
     cand["compat"] = compatibility(state.get("player_traits", []), cand["traits"])
@@ -716,7 +866,7 @@ def generate_invites(state, age, friends, partner, fame, ctx_people):
         out.append({"kind": "friend", "person": fr, "text": f"{fr['name']} wants to be your friend.",
                     "why": "They think you seem fun." if stats["social"] >= 50 else "They'd like to get to know you."})
     close = [f for f in friends if f["category"] == "friend" and f["closeness"] >= 45]
-    close += [p for p in ctx_people if p["category"] == "family" and not p.get("is_child") and p["closeness"] >= 55 and p.get("age", 40) < 80]
+    close += [p for p in ctx_people if p["category"] == "family" and not (p.get("is_child") or p.get("is_grand")) and p["closeness"] >= 55 and p.get("age", 40) < 80]
     if close and random.random() < 0.4:
         who = random.choice(close)
         plan = random.choice(["go to the cinema", "come to a party", "go for a long walk", "have a games night", "get food together"]
@@ -726,7 +876,7 @@ def generate_invites(state, age, friends, partner, fame, ctx_people):
     random.shuffle(out)
     return out[:3]
 
-def accept_invite(inv, state, age, friends, partner, log):
+def accept_invite(inv, state, age, friends, partner, log, casual=False):
     """Applies accepting an invite. Returns the (possibly new) partner."""
     p, kind = inv["person"], inv["kind"]
     stats = state["stats"]
@@ -748,23 +898,27 @@ def accept_invite(inv, state, age, friends, partner, log):
     if kind == "dance":
         stats["social"] = min(100, stats["social"] + 3)
         stats["mental"] = min(100, stats["mental"] + 2)
-        sparks = age >= 16 and partner is None and p["compat"] >= 50 and random.random() < 0.5
+        sparks = age >= 13 and p["compat"] >= 50 and random.random() < 0.5
         if sparks:
-            p["category"], p["relation"], p["romance"] = "partner", "Partner", 45
+            import love
+            love.add_match(state, p, False)
             remember(p, age, "Went to the dance together.")
-            log(f"Went to the dance with {p['name']}, and started dating.")
-            return p
+            log(f"Went to the dance with {p['name']}. There was a spark. Find them in Love.")
+            return partner
         p["category"], p["relation"], p["closeness"] = "friend", "Friend", 55
         friends.append(p)
         remember(p, age, "Went to the school dance together.")
         log(f"Went to the dance with {p['name']}. You became friends.")
         return partner
-    # a date
-    if partner is None and age >= 16:
-        p["category"], p["relation"], p["romance"], p["closeness"] = "partner", "Partner", 45, 50
-        remember(p, age, "Started dating.")
-        log(f"Started dating {p['name']} ({p['compat']}% match).")
-        return p
+    # a date: they become a match you can talk to (see love.py)
+    if age >= 13:
+        import love
+        if len(state.setdefault("love", [])) >= love.MAX_MATCHES:
+            log(f"You're already talking to enough people. {p['name']} slips away.")
+            return partner
+        love.add_match(state, p, casual)
+        remember(p, age, "Started talking.")
+        log(f"{p['name']} and you are {'seeing each other' if casual else 'talking'} ({p['compat']}% match). Find them in Love.")
     return partner
 
 def decline_invite(inv, state, age, friends, log):
@@ -784,17 +938,38 @@ def decline_invite(inv, state, age, friends, log):
 
 PROFILE_BUTTONS = ("Talk", "Hang Out", "Compliment", "Argue", "Gift", "Ask for $", "Ask out", "Back")
 
+def profile_names(p, state, age):
+    names = ["Talk", "Hang Out", "Compliment", "Argue", "Gift"]
+    if p["category"] == "family" and not (p.get("is_child") or p.get("is_grand")):
+        names.append("Ask for $")
+    if p["category"] == "classmate":
+        names.append("Befriend")
+    if can_ask_out(p, state, age):
+        names.append("Ask out")
+    if p["category"] == "partner":
+        names.append("Divorce" if p.get("married") else "Break up")
+        if p.get("married") and not p.get("merged"):
+            names.append("Merge money")
+        if p.get("status") == "situationship":
+            names.append("Make official")
+    elif p["category"] == "friend" and str(p.get("relation", "")).startswith("Ex") and not state.get("_has_partner") and age >= 16:
+        names.append("Get back")
+    names.append("Back")
+    return names
+
 def profile_layout(rect, names=PROFILE_BUTTONS):
     btns = {}
     gap = 4
-    w = min(90, (rect.width - 16 - gap * (len(names) - 1)) // max(1, len(names)))
-    y = rect.bottom - 40
-    for i, name in enumerate(names):
-        btns[name] = pygame.Rect(rect.x + 8 + i * (w + gap), y, w, 32)
+    rows = [names] if len(names) <= 6 else [names[:(len(names) + 1) // 2], names[(len(names) + 1) // 2:]]
+    for r_i, row in enumerate(rows):
+        w = min(100, (rect.width - 16 - gap * (len(row) - 1)) // max(1, len(row)))
+        y = rect.bottom - 40 - (len(rows) - 1 - r_i) * 36
+        for i, name in enumerate(row):
+            btns[name] = pygame.Rect(rect.x + 8 + i * (w + gap), y, w, 32)
     return btns
 
 def can_ask_out(p, state, age):
-    return (p["category"] == "friend" and state.get("_has_partner") is False and age >= 16 and p.get("age", 30) >= 16
+    return (p["category"] in ("friend", "classmate") and not str(p.get("relation", "")).startswith("Ex") and state.get("_has_partner") is False and age >= 16 and p.get("age", 30) >= 16
             and is_attracted(p["attracted"], state.get("gender", "Male"))
             and is_attracted(state.get("attracted", "Both"), p["gender"]) and state["actions_remaining"] > 0)
 
@@ -860,22 +1035,28 @@ def draw_profile(screen, rect, p, mouse_pos, state, age, mode="profile", header=
     mx = rect.x + 440
     draw_text(screen, "Stats", small_font, INK, mx, rect.y + 10)
     draw_stat_bars(screen, mx, rect.y + 32, p, 110)
+    tier, tcol, l1, l2 = money_lines(p)
+    draw_text(screen, "Wealth: ", small_font, INK, mx, rect.y + 136)
+    draw_text(screen, tier, small_font, tcol, mx + small_font.size("Wealth: ")[0], rect.y + 136)
+    draw_text(screen, _fit(l1, small_font, rect.right - mx - 12), small_font, DARK_GREY, mx, rect.y + 154)
+    if l2:
+        draw_text(screen, _fit(l2, small_font, rect.right - mx - 12), small_font, DARK_GREY, mx, rect.y + 172)
     if mode == "profile":
-        draw_text(screen, "Shared memories", small_font, INK, mx, rect.y + 142)
+        my0 = rect.y + 194
+        if p["category"] == "family" and not (p.get("is_child") or p.get("is_grand")) and p.get("age", 40) < 90 and age >= 5:
+            draw_text(screen, f"Might give about ${fmt(worldjobs.ask_amount(p, age))}", small_font, (60, 130, 90), mx, rect.y + 190)
+            my0 = rect.y + 210
+        draw_text(screen, "Shared memories", small_font, INK, mx, my0)
         hist = p.get("history", [])
         if not hist:
-            draw_text(screen, "Nothing yet. Spend time together!", small_font, DARK_GREY, mx, rect.y + 162)
-        for n, (a, t) in enumerate(reversed(hist[-4:])):
-            draw_text(screen, _fit(f"Age {a}: {t}", small_font, rect.right - mx - 12), small_font, DARK_GREY, mx, rect.y + 162 + n * 20)
+            draw_text(screen, "Nothing yet. Spend time together!", small_font, DARK_GREY, mx, my0 + 18)
+        for n, (a, t) in enumerate(reversed(hist[-2:])):
+            draw_text(screen, _fit(f"Age {a}: {t}", small_font, rect.right - mx - 12), small_font, DARK_GREY, mx, my0 + 18 + n * 18)
 
     if mode == "profile":
-        names = [n for n in PROFILE_BUTTONS if not (n == "Ask for $" and (p["category"] != "family" or p.get("is_child")))
-                 and not (n == "Ask out" and not can_ask_out(p, state, age))]
-        btns = profile_layout(rect, names)
+        btns = profile_layout(rect, profile_names(p, state, age))
     else:
-        btns = {}
-        for i, lab in enumerate(labels or ("Accept", "Decline")):
-            btns[lab] = pygame.Rect(rect.x + 190 + i * 220, rect.bottom - 48, 205, 38)
+        btns = decision_layout(rect, labels or ("Accept", "Decline"))
     for name, b in btns.items():
         if mode != "profile":
             off = False
@@ -883,8 +1064,12 @@ def draw_profile(screen, rect, p, mouse_pos, state, age, mode="profile", header=
             off = False
         elif name == "Ask for $":
             off = not can_ask_money(p, state)
-        elif name == "Ask out":
+        elif name in ("Ask out", "Break up", "Divorce", "Get back"):
             off = False
+        elif name in ("Befriend", "Merge money"):
+            off = state["actions_remaining"] <= 0
+        elif name == "Make official":
+            off = state["actions_remaining"] <= 0
         else:
             off = state["actions_remaining"] <= 0 or (name == "Gift" and state["money"] < GIFT_COST)
         primary = mode != "profile" and name == (labels or ("Accept",))[0]
@@ -900,9 +1085,7 @@ def draw_profile(screen, rect, p, mouse_pos, state, age, mode="profile", header=
 
 def handle_profile_click(mx, my, rect, p, state, age):
     """Returns "back", ("askout", person), a message string, or None."""
-    names = [n for n in PROFILE_BUTTONS if not (n == "Ask for $" and (p["category"] != "family" or p.get("is_child")))
-             and not (n == "Ask out" and not can_ask_out(p, state, age))]
-    for name, b in profile_layout(rect, names).items():
+    for name, b in profile_layout(rect, profile_names(p, state, age)).items():
         if not b.collidepoint(mx, my):
             continue
         if name == "Back":
@@ -913,13 +1096,29 @@ def handle_profile_click(mx, my, rect, p, state, age):
             return None
         if name == "Ask out":
             return ("askout", p)
+        if name in ("Break up", "Divorce"):
+            return ("breakup", p)
+        if name == "Merge money":
+            return ("merge", p)
+        if name == "Befriend":
+            return ("befriend", p)
+        if name == "Make official":
+            return ("official", p)
+        if name == "Get back":
+            return ("getback", p)
         apply_interaction(p, name, state)
         return None
     return None
 
+def decision_layout(rect, labels):
+    gap = 8
+    n = max(1, len(labels))
+    w = min(205, (rect.width - 200 - gap * (n - 1)) // n)
+    return {lab: pygame.Rect(rect.x + 190 + i * (w + gap), rect.bottom - 48, w, 38) for i, lab in enumerate(labels)}
+
 def handle_decision_click(mx, my, rect, labels):
     """For prospect/invite cards: returns the label of the clicked button."""
-    for i, lab in enumerate(labels):
-        if pygame.Rect(rect.x + 190 + i * 220, rect.bottom - 48, 205, 38).collidepoint(mx, my):
+    for lab, r in decision_layout(rect, labels).items():
+        if r.collidepoint(mx, my):
             return lab
     return None

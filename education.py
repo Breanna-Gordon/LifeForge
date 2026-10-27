@@ -1,3 +1,5 @@
+import worldjobs
+from constants import fmt
 from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
 import pygame
 from constants import (
@@ -15,23 +17,24 @@ UNI_DURATION = {"Diploma": 2, "Bachelor's": 3, "Master's": 2, "PhD": 3}
 # "tuition" is the cost per year.
 COLLEGES = {
     "Diploma": [
-        {"name": "Technical College", "required_academic": 20, "prestige": 1, "tuition": 15},
+        {"name": "Technical College", "required_academic": 20, "prestige": 1, "tuition": 6000},
     ],
     "Bachelor's": [
-        {"name": "Community College", "required_academic": 25, "prestige": 1, "tuition": 20},
-        {"name": "State University", "required_academic": 50, "prestige": 2, "tuition": 40},
-        {"name": "Ivy League University", "required_academic": 75, "prestige": 3, "tuition": 80},
+        {"name": "Community College", "required_academic": 25, "prestige": 1, "tuition": 8000},
+        {"name": "State University", "required_academic": 50, "prestige": 2, "tuition": 16000},
+        {"name": "Ivy League University", "required_academic": 75, "prestige": 3, "tuition": 32000},
     ],
     "Master's": [
-        {"name": "State University", "required_academic": 40, "prestige": 2, "tuition": 50},
-        {"name": "Ivy League University", "required_academic": 70, "prestige": 3, "tuition": 90},
+        {"name": "State University", "required_academic": 40, "prestige": 2, "tuition": 20000},
+        {"name": "Ivy League University", "required_academic": 70, "prestige": 3, "tuition": 36000},
     ],
     "PhD": [
-        {"name": "State University", "required_academic": 55, "prestige": 2, "tuition": 30},
-        {"name": "Ivy League University", "required_academic": 80, "prestige": 3, "tuition": 60},
+        {"name": "State University", "required_academic": 55, "prestige": 2, "tuition": 12000},
+        {"name": "Ivy League University", "required_academic": 80, "prestige": 3, "tuition": 24000},
     ],
 }
-TRADES = ["Electrician", "Plumber", "Chef", "Mechanic", "Hairdresser", "Nursing Assistant"]
+TRADES = ["Electrician", "Plumber", "Chef", "Mechanic", "Hairdresser", "Nursing Assistant",
+          "Carpenter", "Beautician", "Paramedic", "Police Training", "Firefighter", "Pilot Licence"]
 
 # How much of the fees your family covers (if your parents are around and
 # you get on with them).
@@ -48,7 +51,7 @@ def funding_plan(level, college, course, state):
         pct, label = 0.5, "Sports scholarship"
     sch = int(tuition * pct)
     wealth = state.get("family_wealth", "Comfortable")
-    share = FAMILY_SHARE[wealth] if state.get("parents_ok") else 0.0
+    share = worldjobs.tier_value(wealth, FAMILY_SHARE) if state.get("parents_ok") else 0.0
     family = int((tuition - sch) * share)
     return {"tuition": tuition, "sch": sch, "sch_label": label, "family": family,
             "owe": tuition - sch - family, "wealth": wealth}
@@ -63,6 +66,10 @@ COURSES = {
     "Engineering":      {"offset": 8},
     "Law":              {"offset": 10},
     "Medicine":         {"offset": 15},
+    "Psychology":       {"offset": 3},
+    "Science":          {"offset": 8},
+    "Architecture":     {"offset": 8},
+    "Media & Film":     {"offset": -3},
 }
 SCHOLARSHIP_BONUS = 25
 
@@ -108,23 +115,23 @@ def draw_funding(screen, rect, mouse_pos, state, career, buttons):
     buttons.clear()
     what = pa["level"] + (f" in {pa['course']}" if pa["course"] else "")
     draw_text(screen, f"{what} at {pa['college']['name']}", font, INK, rect.x, rect.y)
-    rows = [f"Tuition: ${plan['tuition']} a year for {UNI_DURATION[pa['level']]} years",
-            f"{plan['sch_label'] or 'Scholarship'}: ${plan['sch']}" + ("" if plan["sch"] else "  (need a higher Academic score)"),
-            f"Family contribution: ${plan['family']}" + ("" if plan["family"] else
+    rows = [f"Tuition: ${fmt(plan['tuition'])} a year for {UNI_DURATION[pa['level']]} years",
+            f"{plan['sch_label'] or 'Scholarship'}: ${fmt(plan['sch'])}" + ("" if plan["sch"] else "  (need a higher Academic score)"),
+            f"Family contribution: ${fmt(plan['family'])}" + ("" if plan["family"] else
                 "  (parents can't or don't cover fees)" if not state.get("parents_ok") or plan["wealth"] == "Struggling"
                 else ""),
             f"Your family is {plan['wealth'].lower()}.",
-            f"You pay: ${plan['owe']} a year"]
+            f"You pay: ${fmt(plan['owe'])} a year"]
     for i, t in enumerate(rows):
         draw_text(screen, t, small_font, BLACK if i == 4 else DARK_GREY, rect.x, rect.y + 32 + i * 22)
     y = rect.y + 160
     if plan["owe"] > 0:
         loan = pygame.Rect(rect.x, y, 210, 36)
         pay = pygame.Rect(rect.x + 220, y, 210, 36)
-        draw_button(screen, loan, f"Student loan (+${plan['owe']}/yr debt)", mouse_pos)
+        draw_button(screen, loan, f"Student loan (+${fmt(plan['owe'])}/yr debt)", mouse_pos)
         draw_button(screen, pay, "Pay from savings", mouse_pos)
         buttons["fund_loan"], buttons["fund_pay"] = loan, pay
-        draw_text(screen, f"You have ${state['money']}. Loans grow by 5% a year and are repaid from your wages.",
+        draw_text(screen, f"You have ${fmt(state['money'])}. Loans grow by 5% a year and are repaid from your wages.",
                   small_font, DARK_GREY, rect.x, y + 46)
     else:
         ok = pygame.Rect(rect.x, y, 210, 36)
@@ -163,8 +170,8 @@ def draw_education_tab(screen, rect, mouse_pos, age, state, career):
         fund = career.get("funding") or {}
         if fund:
             how = "student loan" if fund.get("mode") == "loan" else "savings"
-            txt = (f"Tuition ${fund['tuition']}/yr: family ${fund['family']}, scholarship ${fund['sch']}, "
-                   f"you ${fund['owe']} ({how}).")
+            txt = (f"Tuition ${fmt(fund['tuition'])}/yr: family ${fmt(fund['family'])}, scholarship ${fmt(fund['sch'])}, "
+                   f"you ${fmt(fund['owe'])} ({how}).")
             draw_text(screen, txt, small_font, DARK_GREY, rect.x, rect.y + 120)
         draw_text(screen, "Part-time and student jobs are in the Career tab.", small_font, DARK_GREY, rect.x, rect.y + 144)
         return {"study": study_rect, "dropout": dropout_rect}

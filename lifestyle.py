@@ -1,3 +1,5 @@
+import worldjobs
+from constants import fmt
 """Lifestyle: a BitLife-style menu of everyday things to do (Mind & Body,
 Salon & Spa, Doctor, Love, Freelance Gigs, Money & Business, Leisure,
 School, Pets and Crime), plus yearly upkeep for pets, businesses and prison.
@@ -15,14 +17,14 @@ PET_KINDS = [("dog", 13), ("cat", 14), ("hamster", 3), ("rabbit", 8), ("parrot",
 PET_NAMES = ["Biscuit", "Mochi", "Pepper", "Ziggy", "Luna", "Bean", "Nugget", "Pixel", "Tofu", "Maple"]
 
 INDUSTRIES = [
-    {"id": "foodtruck", "name": "Food Truck",         "cost": 400,  "min_stat": None},
-    {"id": "beauty",    "name": "Beauty Supply",      "cost": 350,  "min_stat": None},
-    {"id": "clothing",  "name": "Clothing Outlet",    "cost": 500,  "min_stat": None},
-    {"id": "jewellery", "name": "Jewellery",          "cost": 800,  "min_stat": None},
-    {"id": "music",     "name": "Musical Instruments","cost": 450,  "min_stat": None},
-    {"id": "footwear",  "name": "Footwear",           "cost": 450,  "min_stat": None},
-    {"id": "sports",    "name": "Sporting Goods",     "cost": 500,  "min_stat": None},
-    {"id": "robotics",  "name": "Robotics",           "cost": 1500, "min_stat": ("academic", 70)},
+    {"id": "foodtruck", "name": "Food Truck",         "cost": 20000,  "min_stat": None},
+    {"id": "beauty",    "name": "Beauty Supply",      "cost": 17500,  "min_stat": None},
+    {"id": "clothing",  "name": "Clothing Outlet",    "cost": 25000,  "min_stat": None},
+    {"id": "jewellery", "name": "Jewellery",          "cost": 40000,  "min_stat": None},
+    {"id": "music",     "name": "Musical Instruments","cost": 22500,  "min_stat": None},
+    {"id": "footwear",  "name": "Footwear",           "cost": 22500,  "min_stat": None},
+    {"id": "sports",    "name": "Sporting Goods",     "cost": 25000,  "min_stat": None},
+    {"id": "robotics",  "name": "Robotics",           "cost": 75000, "min_stat": ("academic", 70)},
 ]
 IND_BY_ID = {i["id"]: i for i in INDUSTRIES}
 
@@ -30,13 +32,18 @@ IND_BY_ID = {i["id"]: i for i in INDUSTRIES}
 def _jailed(state):
     return state.get("jail", 0) > 0
 
+def _need_free_to_date(state, age, career):
+    if state.get("_has_partner") and not state.get("_casual"):
+        return "You're with someone. (Try 'Swipe in secret'...)"
+    return None
+
 def _need_partnerless(state, age, career):
     if state.get("_has_partner"):
         return "You already have a partner."
     return None
 
 def _need_money(n):
-    return lambda state, age, career: None if (state["money"] >= n or age < 18) else f"You need ${n}."
+    return lambda state, age, career: None if (state["money"] >= n or age < 18) else f"You need ${fmt(n)}."
 
 def _need_stat(stat, n):
     return lambda state, age, career: None if state["stats"][stat] >= n else f"Needs {stat.title()} {n}+."
@@ -53,38 +60,47 @@ def I(id, name, desc, min=0, max=99, cost=0, fx=None, skill=None, special=None, 
 
 ITEMS = {
     "mind": [
-        I("gym", "Gym", "Work out at the gym", 14, cost=15, fx={"athletic": 2, "physical": 2, "looks": 1}),
+        I("gym", "Gym", "Work out at the gym", 14, cost=40, fx={"athletic": 2, "physical": 2, "looks": 1}),
         I("meditate", "Meditate", "Practise meditation", 8, fx={"mental": 3}),
         I("book", "Read a book", "Find a good book", 6, fx={"academic": 2, "mental": 1}),
         I("garden", "Garden", "Tend to your garden", 8, fx={"mental": 2, "physical": 1}),
-        I("diet", "Healthy diet", "Start a diet plan", 13, cost=40, fx={"physical": 2, "looks": 2}, once=True),
-        I("modelles", "Modelling lessons", "Poise and posing", 12, cost=40, fx={"looks": 1, "social": 1}, skill="modelling"),
-        I("actles", "Acting lessons", "Take acting lessons", 8, cost=35, fx={"social": 1, "mental": 1}, skill="acting"),
-        I("voiceles", "Voice lessons", "Train your voice", 6, cost=30, fx={"mental": 1, "social": 1}, skill="singing"),
-        I("spacecamp", "Space camp", "Go to space camp", 8, 17, cost=120, fx={"academic": 3, "mental": 1}, once=True),
+        I("diet", "Healthy diet", "Start a diet plan", 13, cost=150, fx={"physical": 2, "looks": 2}, once=True),
+        I("modelles", "Modelling lessons", "Poise and posing", 12, cost=120, fx={"looks": 1, "social": 1}, skill="modelling"),
+        I("actles", "Acting lessons", "Take acting lessons", 8, cost=120, fx={"social": 1, "mental": 1}, skill="acting"),
+        I("voiceles", "Voice lessons", "Train your voice", 6, cost=100, fx={"mental": 1, "social": 1}, skill="singing"),
+        I("spacecamp", "Space camp", "Go to space camp", 8, 17, cost=800, fx={"academic": 3, "mental": 1}, once=True),
         I("memory", "Memory test", "Have your memory evaluated", 10, fx={"academic": 1}, special="memory"),
+        I("yogaact", "Yoga session", "Stretch and breathe", 10, fx={"mental": 2, "physical": 1}),
+        I("journal", "Write in a journal", "Get your thoughts out", 10, fx={"mental": 2}),
+        I("marathon", "Run a marathon", "26 gruelling miles", 16, 70, cost=60, fx={"athletic": 4, "physical": 2, "mental": 1}, need=_need_stat("athletic", 45)),
     ],
     "salon": [
-        I("haircut", "Barber / stylist", "Get a new hairstyle", 10, cost=15, fx={"looks": 1}, special="hair_style"),
-        I("dye", "Dye job", "Change your hair colour", 12, cost=20, fx={"looks": 1}, special="hair_colour"),
-        I("massage", "Massage", "Get a massage", 16, cost=40, fx={"mental": 3, "physical": 1}),
-        I("nails", "Nail salon", "Get your nails done", 12, cost=25, fx={"looks": 1, "social": 1}),
-        I("tan", "Tanning salon", "Work on your tan", 16, cost=20, fx={"looks": 2}, special="tan"),
-        I("wax", "Waxing salon", "Get waxed", 16, cost=25, fx={"looks": 1}),
+        I("haircut", "Barber / stylist", "Get a new hairstyle", 10, cost=60, fx={"looks": 1}, special="hair_style"),
+        I("dye", "Dye job", "Change your hair colour", 12, cost=90, fx={"looks": 1}, special="hair_colour"),
+        I("massage", "Massage", "Get a massage", 16, cost=120, fx={"mental": 3, "physical": 1}),
+        I("nails", "Nail salon", "Get your nails done", 12, cost=70, fx={"looks": 1, "social": 1}),
+        I("tan", "Tanning salon", "Work on your tan", 16, cost=60, fx={"looks": 2}, special="tan"),
+        I("wax", "Waxing salon", "Get waxed", 16, cost=70, fx={"looks": 1}),
+        I("tattoo", "Tattoo parlour", "Get inked", 18, cost=250, fx={"looks": 1, "social": 1}),
+        I("facial", "Facial", "A glowing complexion", 14, cost=90, fx={"looks": 2}),
+        I("eyebrow", "Eyebrows & lashes", "Frame your face", 14, cost=60, fx={"looks": 1}),
     ],
     "health": [
-        I("doctor", "Doctor", "See a doctor for a check-up", 0, cost=60, fx={"physical": 4}, pay="family_health"),
-        I("therapy", "Therapist", "Talk things through", 14, cost=50, fx={"mental": 5}),
-        I("dentist", "Dentist", "Look after your smile", 6, cost=40, fx={"looks": 1, "physical": 1}, pay="family_health"),
-        I("surgery", "Plastic surgery", "Change your looks (risky)", 18, cost=450, special="surgery", once=True),
-        I("rehab", "Rehab", "Reset bad habits", 16, cost=200, fx={"mental": 4, "physical": 4}, special="rehab",
+        I("doctor", "Doctor", "See a doctor for a check-up", 0, cost=250, fx={"physical": 4}, pay="family_health"),
+        I("therapy", "Therapist", "Talk things through", 14, cost=150, fx={"mental": 5}),
+        I("dentist", "Dentist", "Look after your smile", 6, cost=200, fx={"looks": 1, "physical": 1}, pay="family_health"),
+        I("surgery", "Plastic surgery", "Change your looks (risky)", 18, cost=9000, special="surgery", once=True),
+        I("rehab", "Rehab", "Reset bad habits", 16, cost=3500, fx={"mental": 4, "physical": 4}, special="rehab",
           need=lambda s, a, c: None if s.get("casino_plays", 0) >= 5 or s.get("record", 0) else "Nothing to recover from."),
+        I("coach", "Life coach", "Set goals that stick", 16, cost=200, fx={"mental": 3, "academic": 1}),
+        I("acupuncture", "Acupuncture", "Needles and calm", 16, cost=110, fx={"physical": 2, "mental": 2}),
+        I("eyetest", "Eye test", "Check your vision", 5, cost=60, fx={"physical": 1}, pay="family_health"),
+        I("hypno", "Hypnotist", "Break a bad habit", 16, cost=180, fx={"mental": 3}),
     ],
     "love": [
-        I("dating", "Dating app", "Find love online", 18, cost=15, special="dating", need=_need_partnerless),
-        I("celeb", "Celebrity dating app", "Date the celebrity of your dreams", 18, cost=300, special="celeb",
-          need=lambda s, a, c: _need_partnerless(s, a, c) or _need_famous(s, a, c)),
-        I("datenight", "Treat yourself to a date", "A romantic evening out", 16, cost=35, special="datenight"),
+        I("datenight", "Treat yourself to a date", "A romantic evening out", 16, cost=150, special="datenight"),
+        I("anniv", "Anniversary dinner", "Celebrate your partner", 18, cost=200, fx={"mental": 2, "social": 1},
+          need=lambda s, a, c: None if s.get("_has_partner") else "You need a partner."),
     ],
     "gigs": [
         I("handyman", "Handyman", "$14/hour", 16, special="gig", rate=14, fx={"athletic": 1}, need=_need_stat("athletic", 35)),
@@ -97,36 +113,51 @@ ITEMS = {
     ],
     "money": [
         I("lottery", "Lottery", "Buy a $2 ticket", 18, cost=2, special="lottery"),
-        I("casino", "Casino", "Bet $50 at the casino", 18, special="casino", need=_need_money(50)),
+        I("casino", "Casino", "Bet $200 at the casino", 18, special="casino", need=_need_money(200)),
         I("sweeps", "Sweepstakes", "Enter for free", 12, special="sweeps"),
-        I("shopping", "Shopping spree", "Go shopping", 14, cost=60, fx={"mental": 2, "looks": 1}),
-        I("openbiz", "Start a business", "Pick an industry", 18, special="open_industries"),
-        I("sellbiz", "Sell your business", "Cash out", 18, special="sell_business",
-          need=lambda s, a, c: None if s.get("business") else "You don't own a business."),
+        I("shopping", "Shopping spree", "Go shopping", 14, cost=400, fx={"mental": 2, "looks": 1}),
+        I("scratch", "Scratch card", "A quick $5 gamble", 18, cost=5, special="lottery"),
+        I("garage", "Garage sale", "Sell your old stuff", 14, fx={"social": 1}, special="sweeps"),
     ],
     "leisure": [
-        I("movie", "Movie theater", "Go to the movies", 5, cost=12, fx={"mental": 2, "social": 1}, special="movie"),
-        I("vacation", "Vacation", "Go on holiday", 8, cost=250, fx={"mental": 5, "physical": 1}, special="vacation"),
+        I("movie", "Movie theater", "Go to the movies", 5, cost=15, fx={"mental": 2, "social": 1}, special="movie"),
+        I("vacation", "Vacation", "Go on holiday", 8, cost=2500, fx={"mental": 5, "physical": 1}, special="vacation"),
         I("social", "Social media", "Post something online", 12, special="social"),
-        I("party", "Throw a party", "Invite everyone round", 14, cost=45, fx={"social": 3, "mental": 1}, special="party"),
+        I("party", "Throw a party", "Invite everyone round", 14, cost=250, fx={"social": 3, "mental": 1}, special="party"),
+        I("concert", "Concert", "See a live show", 12, cost=90, fx={"mental": 3, "social": 2}),
+        I("themepark", "Theme park", "Rides and snacks", 5, cost=70, fx={"mental": 3, "social": 1}, pay="family_health"),
+        I("museum", "Museum", "Culture day", 6, cost=15, fx={"academic": 2, "mental": 1}),
+        I("karaoke", "Karaoke night", "Sing your heart out", 16, cost=40, fx={"social": 2, "mental": 2}),
+        I("bowling", "Bowling", "Strikes and spares", 8, cost=25, fx={"social": 2, "athletic": 1}),
+        I("fishing", "Fishing trip", "Wait and relax", 8, cost=20, fx={"mental": 3}),
+        I("camping", "Camping trip", "Tents and stars", 10, cost=120, fx={"mental": 3, "physical": 2, "social": 1}),
+        I("hiking", "Go hiking", "Fresh air and views", 10, fx={"physical": 2, "athletic": 2, "mental": 1}),
+        I("photo", "Photography walk", "Take photos", 10, cost=0, fx={"mental": 2}, skill="photography"),
+        I("cooking", "Cooking class", "Learn a recipe", 10, cost=60, fx={"mental": 1, "social": 1}, skill="cooking"),
     ],
     "school": [
         I("classmates", "Make friends", "Chat with classmates", 5, 25, fx={"social": 2}, special="classmates"),
         I("faculty", "Faculty", "Interact with your teachers", 5, 25, fx={"academic": 2}, special="faculty"),
         I("nurse", "Nurse", "Visit the school nurse", 5, 18, fx={"physical": 3}),
-        I("private", "Change schools", "Ask to go to private school", 8, 17, special="private_school", once=True),
+        I("private", "Prep school", "Ask for an elite prep school (IB diploma)", 8, 17, special="private_school", school="prep"),
+        I("boarding", "Boarding school", "Ask for a boarding school", 11, 17, special="private_school", school="boarding"),
+        I("artsac", "Arts academy", "Ask for a performing arts academy", 8, 17, special="private_school", school="arts"),
+        I("sportsac", "Sports academy", "Ask for a sports academy", 8, 17, special="private_school", school="sports"),
     ],
     "pets": [
-        I("adopt", "Adopt a pet", "Give a pet a home", 6, cost=80, special="adopt",
+        I("adopt", "Adopt a pet", "Give a pet a home", 6, cost=300, special="adopt",
           need=lambda s, a, c: None if len(s.get("pets", [])) < 3 else "Three pets is plenty."),
         I("playpet", "Play with your pets", "Spend time together", 5, fx={"mental": 2, "physical": 1}, special="playpet",
           need=lambda s, a, c: None if s.get("pets") else "You don't have a pet."),
     ],
     "crime": [
         I("shoplift", "Shoplift", "Risk: low", 16, special="crime", crime=("shoplift", 15, 40, 0.22, "a shop")),
-        I("pickpocket", "Pickpocket", "Risk: medium", 16, special="crime", crime=("pickpocket", 30, 80, 0.34, "a crowd")),
-        I("scam", "Run a scam", "Risk: medium", 18, special="crime", crime=("scam", 80, 250, 0.40, "a stranger")),
-        I("burgle", "Burgle a house", "Risk: high", 18, special="crime", crime=("burgle", 150, 400, 0.52, "a house")),
+        I("pickpocket", "Pickpocket", "Risk: medium", 16, special="crime", crime=("pickpocket", 60, 220, 0.34, "a crowd")),
+        I("scam", "Run a scam", "Risk: medium", 18, special="crime", crime=("scam", 400, 2000, 0.40, "a stranger")),
+        I("burgle", "Burgle a house", "Risk: high", 18, special="crime", crime=("burgle", 1000, 4000, 0.52, "a house")),
+        I("hack", "Hack a company", "Risk: high", 18, special="crime", need=_need_stat("academic", 60), crime=("hack", 1500, 6000, 0.45, "a company")),
+        I("gta", "Steal a car", "Risk: high", 17, special="crime", crime=("gta", 800, 3500, 0.48, "a car")),
+        I("bank", "Rob a bank", "Risk: very high", 18, special="crime", crime=("bank", 8000, 40000, 0.68, "a bank")),
     ],
     "prison": [
         I("pgym", "Prison gym", "Work out in the yard", 0, fx={"physical": 2, "athletic": 1}),
@@ -139,7 +170,7 @@ CATEGORIES = [
     ("mind", "Mind & Body", "Work on self-improvement", 6, None),
     ("salon", "Salon & Spa", "Take time for yourself", 10, None),
     ("health", "Doctor & Health", "Look after yourself", 0, None),
-    ("love", "Love", "Find someone to love", 16, None),
+    ("love", "Date night", "Treat your partner", 16, lambda s, a, c: bool(s.get("_has_partner"))),
     ("gigs", "Freelance Gigs", "Make some quick money", 11, None),
     ("money", "Money & Business", "Lottery, casino, your own company", 12, None),
     ("leisure", "Leisure", "Movies, holidays, social media", 5, None),
@@ -152,7 +183,7 @@ CAT_BY_KEY = {c[0]: c for c in CATEGORIES}
 def _industry_items():
     out = []
     for ind in INDUSTRIES:
-        out.append(I("ind_" + ind["id"], ind["name"], f"Setup ${ind['cost']}", 18, cost=ind["cost"],
+        out.append(I("ind_" + ind["id"], ind["name"], f"Setup ${fmt(ind['cost'])}", 18, cost=ind["cost"],
                      special="start_business", industry=ind["id"],
                      need=_biz_need(ind)))
     return out
@@ -202,21 +233,24 @@ def _pay(state, age, item, log):
         return cost if state["money"] >= cost else None
     # children: family covers little things and kids' health care; bigger
     # items need a parent to say yes
-    if cost <= 15 or item.get("pay") == "family_health":
+    if cost <= 40 or item.get("pay") == "family_health":
         return 0
     flag = "__askpay__" + item["id"]
+    if item["id"] in state.get("parent_pays", []):
+        return 0
     if state["actions_used"].get(flag) == "no":
         log(f"Your parents already said no to {item['name'].lower()} this year.")
         return None
     if not state.get("parents_ok"):
         log("There's nobody to pay for that right now.")
         return None
-    chance = {"Struggling": 0.35, "Comfortable": 0.75, "Wealthy": 0.95}[state.get("family_wealth", "Comfortable")]
+    chance = worldjobs.tier_value(state, {"Struggling": 0.35, "Comfortable": 0.75, "Wealthy": 0.95})
     if random.random() > chance:
         state["actions_used"][flag] = "no"
         log(f"You asked your parents to pay for {item['name'].lower()}, but they said not this year.")
         return None
-    log(f"Your parents agreed to pay for {item['name'].lower()}.")
+    state.setdefault("parent_pays", []).append(item["id"])
+    log(f"Your parents agreed to pay for {item['name'].lower()}, and will keep paying for it.")
     return 0
 
 def _gain(state, fx, dim=1.0):
@@ -230,15 +264,15 @@ def item_label(item, state, age):
         return "Work"
     if not cost:
         return "Free"
-    if age < 18 and cost > 15 and item.get("pay") != "family_health":
-        return "Ask parents"
+    if age < 18 and cost > 40 and item.get("pay") != "family_health":
+        return "Parents pay" if item["id"] in state.get("parent_pays", []) else "Ask parents"
     if age < 18:
         return "Covered"
-    return f"${cost}"
+    return f"${fmt(cost)}"
 
 # ---- drawing ------------------------------------------------------------------
 def view_rects(rect):
-    labels = [("clubs", "Clubs", 74), ("outings", "Outings", 84), ("life", "Lifestyle", 92)]
+    labels = [("clubs", "Clubs", 66), ("outings", "Outings", 80), ("sports", "Sports", 72), ("life", "Lifestyle", 0)]
     out, x = {}, rect.right
     for key, _, w in reversed(labels):
         x -= w
@@ -292,13 +326,13 @@ def draw_lifestyle(screen, rect, mouse_pos, state, age, career):
         sub = reason or it["desc"]
         if it.get("industry"):
             d = state["demand"].get(it["industry"], 50)
-            sub = reason or f"Setup ${it['cost']}"
+            sub = reason or f"Setup ${fmt(it['cost'])}"
             bar = pygame.Rect(r.right - 70, r.y + 21, 56, 8)
             draw_rounded_rect(screen, LIGHT_GREY, bar, radius=4)
             draw_rounded_rect(screen, GREEN if d >= 55 else (230, 170, 60) if d >= 35 else RED, (bar.x, bar.y, int(bar.w * d / 100), bar.h), radius=4)
             sub = _clip(sub, r.w - 90)
         elif it["id"] == "sellbiz" and state.get("business"):
-            sub = f"Get back about ${int(state['business']['cost'] * 0.7)}"
+            sub = f"Get back about ${fmt(int(state['business']['cost'] * 0.7))}"
         elif it.get("special") == "gig":
             sub = f"{it['desc']}"
         if reason is None and it["fx"] and not it.get("industry") and it.get("special") != "gig":
@@ -404,6 +438,14 @@ def _sp_dating(it, state, age, career, friends, make_friend, log, dim, paid):
     state["_want_prospect"] = "dating"
     log("Browsed the dating app...")
 
+def _sp_dating_plus(it, state, age, career, friends, make_friend, log, dim, paid):
+    state["_want_prospect"] = "plus"
+    log("Browsed the premium dating app...")
+
+def _sp_dating_secret(it, state, age, career, friends, make_friend, log, dim, paid):
+    state["_want_prospect"] = "secret"
+    log("Swiped in secret...")
+
 def _sp_celeb(it, state, age, career, friends, make_friend, log, dim, paid):
     state["_want_prospect"] = "celeb"
     log("Tried the celebrity dating app...")
@@ -422,15 +464,15 @@ def _sp_gig(it, state, age, career, friends, make_friend, log, dim, paid):
     got = it["rate"] * hours
     state["money"] += got
     state["gigs_done"] = state.get("gigs_done", 0) + 1
-    log(f"{it['name']} gig: earned ${got} for {hours} hours' work.")
+    log(f"{it['name']} gig: earned ${fmt(got)} for {hours} hours' work.")
 
 def _sp_lottery(it, state, age, career, friends, make_friend, log, dim, paid):
     r = random.random()
-    if r < 1 / 2000:
-        state["money"] += 2000
+    if r < 1 / 20000:
+        state["money"] += 250000
         state["lottery_won"] = True
-        log("You won the lottery jackpot: $2000!")
-    elif r < 1 / 2000 + 1 / 12:
+        log("You won the lottery jackpot: $250,000!")
+    elif r < 1 / 20000 + 1 / 12:
         state["money"] += 10
         log("Lottery: you won $10.")
     else:
@@ -439,17 +481,17 @@ def _sp_lottery(it, state, age, career, friends, make_friend, log, dim, paid):
 def _sp_casino(it, state, age, career, friends, make_friend, log, dim, paid):
     state["casino_plays"] = state.get("casino_plays", 0) + 1
     if random.random() < 0.46:
-        state["money"] += 50
-        log("Casino: you won $50!")
+        state["money"] += 200
+        log("Casino: you won $200!")
     else:
-        state["money"] -= 50
+        state["money"] -= 200
         state["stats"]["mental"] = max(0, state["stats"]["mental"] - 1)
-        log("Casino: you lost $50.")
+        log("Casino: you lost $200.")
 
 def _sp_sweeps(it, state, age, career, friends, make_friend, log, dim, paid):
     if random.random() < 1 / 120:
-        state["money"] += 100
-        log("You won $100 in a sweepstake!")
+        state["money"] += 500
+        log("You won $500 in a sweepstake!")
     else:
         log("Entered the sweepstakes. Nothing yet.")
 
@@ -464,7 +506,7 @@ def _sp_sell_business(it, state, age, career, friends, make_friend, log, dim, pa
     got = int(b["cost"] * 0.7)
     state["money"] += got
     state["business"] = None
-    log(f"Sold your {b['name']} business for ${got}.")
+    log(f"Sold your {b['name']} business for ${fmt(got)}.")
 
 def _sp_movie(it, state, age, career, friends, make_friend, log, dim, paid):
     if friends and random.random() < 0.5:
@@ -480,7 +522,7 @@ def _sp_vacation(it, state, age, career, friends, make_friend, log, dim, paid):
     if r < 0.15 and age >= 18:
         lost = min(state["money"], 40)
         state["money"] -= lost
-        log(f"Holiday mishap: lost ${lost} of spending money, but still had fun.")
+        log(f"Holiday mishap: lost ${fmt(lost)} of spending money, but still had fun.")
     elif r < 0.35:
         log("Met interesting people on holiday.")
         if len(friends) < 8:
@@ -508,25 +550,42 @@ def _sp_party(it, state, age, career, friends, make_friend, log, dim, paid):
     log("Threw a party for your friends.")
 
 def _sp_classmates(it, state, age, career, friends, make_friend, log, dim, paid):
-    if len(friends) < 8 and random.random() < 0.5:
-        f = make_friend()
-        log(f"Became friends with {f['name']} at school.")
+    cl = state.get("classmates", [])
+    if not cl:
+        log("There's nobody in your class right now.")
+        return
+    c = random.choice(cl)
+    c["closeness"] = min(100, c["closeness"] + 10)
+    c["contacted"] = True
+    if c["closeness"] >= 40 and random.random() < 0.6 and len(friends) < 10:
+        cl.remove(c)
+        c["category"], c["relation"] = "friend", "Friend"
+        friends.append(c)
+        log(f"Became friends with {c['name']} at school.")
     else:
-        log("Chatted with classmates.")
+        log(f"Chatted with {c['name']} from class.")
 
 def _sp_faculty(it, state, age, career, friends, make_friend, log, dim, paid):
     log("A teacher gave you extra guidance." if random.random() < 0.7 else "A teacher gave you a tough talk about homework.")
 
+SCHOOLS = {"prep": ("Elite prep school", "IB Diploma", {"academic": 3}, {"academic": 1}, 6),
+           "boarding": ("Boarding school", "Boarding School Certificate", {"academic": 2, "mental": 1}, {"academic": 1, "social": 1}, 4),
+           "arts": ("Arts academy", "Performing Arts Diploma", {"looks": 2, "social": 2}, {"social": 1, "looks": 1}, 3),
+           "sports": ("Sports academy", "Sports Excellence Diploma", {"athletic": 4}, {"athletic": 1, "physical": 1}, 3)}
+
 def _sp_private_school(it, state, age, career, friends, make_friend, log, dim, paid):
-    chance = {"Struggling": 0.05, "Comfortable": 0.25, "Wealthy": 0.6}[state.get("family_wealth", "Comfortable")]
+    chance = worldjobs.tier_value(state, {"Struggling": 0.05, "Comfortable": 0.25, "Wealthy": 0.6})
+    kind = it.get("school", "prep")
+    name, diploma, join_fx, _, _ = SCHOOLS[kind]
     if state.get("private_school"):
         log("You already go to a private school.")
     elif state.get("parents_ok") and random.random() < chance:
-        state["private_school"] = True
-        state["stats"]["academic"] = min(100, state["stats"]["academic"] + 3)
-        log("Your parents agreed. You moved to a private school!")
+        state["private_school"] = kind
+        for k, v in join_fx.items():
+            state["stats"][k] = min(100, state["stats"][k] + v)
+        log(f"Your parents agreed. You joined the {name.lower()}!")
     else:
-        log("Your parents said private school isn't an option.")
+        log("Your parents said that school isn't an option.")
 
 def _sp_adopt(it, state, age, career, friends, make_friend, log, dim, paid):
     kind, life = random.choice(PET_KINDS)
@@ -546,13 +605,13 @@ def _sp_crime(it, state, age, career, friends, make_friend, log, dim, paid):
         got = random.randint(lo, hi)
         state["money"] += got
         s["mental"] = max(0, s["mental"] - 1)
-        log(f"You got away with it: ${got} from {target}.")
+        log(f"You got away with it: ${fmt(got)} from {target}.")
         return
     state["record"] = state.get("record", 0) + 1
     if key == "shoplift" and random.random() < 0.6:
-        fine = min(state["money"], random.randint(20, 80))
+        fine = min(state["money"], random.randint(100, 600))
         state["money"] -= fine
-        log(f"Caught shoplifting. You were fined ${fine} and got a criminal record.")
+        log(f"Caught shoplifting. You were fined ${fmt(fine)} and got a criminal record.")
         return
     years = random.randint(1, 3) if key in ("shoplift", "pickpocket", "scam") else random.randint(2, 4)
     state["jail"] = years
@@ -595,19 +654,18 @@ def advance_lifestyle_year(state, career, age, log):
     if pets:
         s["mental"] = min(100, s["mental"] + min(2, len(pets)))
         if age >= 18:
-            vet = 10 * len(pets)
+            vet = 300 * len(pets)
             state["money"] = max(0, state["money"] - vet)
     for k in state["demand"]:
         state["demand"][k] = max(10, min(95, state["demand"][k] + random.randint(-12, 12)))
-    b = state.get("business")
-    if b and not state["jail"]:
-        d = state["demand"].get(b["industry"], 50)
-        profit = round(b["cost"] * 0.18 * (d - 40) / 40 + random.gauss(0, b["cost"] * 0.07))
-        b["years"] += 1
-        state["money"] += profit
-        if state["money"] < 0:
-            state["debt"] = state.get("debt", 0) - state["money"]
-            state["money"] = 0
-        log(f"Your {b['name']} business {'made' if profit >= 0 else 'lost'} ${abs(profit)} this year (demand {d}%).")
-    if state.get("private_school") and age < 18:
-        s["academic"] = min(100, s["academic"] + 1)
+    import business as _biz
+    _biz.business_year(state, age, career, log)
+    ps = state.get("private_school")
+    if ps and age < 18:
+        kind = ps if isinstance(ps, str) and ps in SCHOOLS else "prep"
+        for k, v in SCHOOLS[kind][3].items():
+            s[k] = min(100, s[k] + v)
+        if age == 17:
+            career["prestige"] = career.get("prestige", 0) + SCHOOLS[kind][4]
+            state["school_diploma"] = SCHOOLS[kind][1]
+            log(f"You graduated with a {SCHOOLS[kind][1]}. Universities notice.")
