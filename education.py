@@ -47,8 +47,14 @@ def funding_plan(level, college, course, state):
     surplus = state["stats"]["academic"] - entry_requirement(level, college, course, False)
     pct = 1.0 if surplus >= 25 else 0.5 if surplus >= 15 else 0.25 if surplus >= 8 else 0.0
     label = "Merit scholarship" if pct else ""
-    if state.get("scholarship") and level == "Bachelor's" and pct < 0.5:
+    import pathways
+    ath = pathways.scholarship_pct(state) if level == "Bachelor's" else 0
+    if ath > pct:
+        pct, label = ath, "Athletic scholarship"
+    elif state.get("scholarship") and level == "Bachelor's" and pct < 0.5 and not pathways.P(state).get("scholar"):
         pct, label = 0.5, "Sports scholarship"
+    if state.get("school_scholar") and level == "Bachelor's" and pct < 0.25:
+        pct, label = 0.25, "Scholar's award"      # a school scholarship carries on into university
     sch = int(tuition * pct)
     wealth = state.get("family_wealth", "Comfortable")
     share = worldjobs.tier_value(wealth, FAMILY_SHARE) if state.get("parents_ok") else 0.0

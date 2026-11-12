@@ -1,4 +1,5 @@
 import asyncio
+import math
 import pygame
 from constants import fmt, fmt_short
 from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
@@ -19,7 +20,28 @@ from people import (near_age, make_prospect, generate_invites, accept_invite, de
 from education import draw_education_tab, handle_education_click
 from career import draw_career_tab, handle_career_click, advance_career_year
 from events import pick_year_events, describe
+import events as _events
+import nightmode
+import station
+import stories
+import publiclife
+import idol
+import celebrity
+import pathways
+import budget
+import home
+import gameover
+import scenes
+import lifeevents
+import skipsummary
+import kids
+import titles
+nightmode.install()
+lifeevents.install(choice_events, _events.SITUATIONAL)
+station.install()
+stories.install()
 import family
+import scenarios
 import appearance
 from shop import draw_shop_tab, handle_shop_click, apply_passives
 from shop import bank_auto as shop_bank_auto
@@ -40,7 +62,7 @@ TABS = ["Life", "People", "Love", "Family", "Education", "Career", "Activities",
 TAB_LABEL = {"Education": "Learn", "Career": "Work", "Activities": "Play", "Shop": "Money"}
 SKIP_YEARS = 5
 MILESTONE_AGES = (7, 13, 16, 18, 21, 30, 65)
-CONTENT_RECT = pygame.Rect(200, 320, 675, 320)
+CONTENT_RECT = pygame.Rect(96, 112, 676, 560)
 ACTIONS_PER_YEAR = 20
 
 # Every life gets a random aspiration. Reach it and you get a Mental boost
@@ -84,7 +106,15 @@ def apply_consequence(state, consequence):
         consequence = dict(consequence)
         consequence["money"] = int(consequence["money"] * max(2, state.get("_income", 0) // 2000))
     stats = state["stats"]
+    if consequence.get("act"):
+        consequence = dict(consequence)
+        note = lifeevents.run_act(state, consequence["act"])
+        if note:
+            consequence["note"] = note
+            log(state, note)
     for key, value in consequence.items():
+        if key in ("act", "note"):
+            continue
         if key == "person":
             who, fx = value
             for k, v in fx.items():
@@ -105,6 +135,10 @@ def apply_consequence(state, consequence):
             state["money"] = max(0, state["money"] + value)
         else:
             stats[key] = max(0, min(100, stats[key] + value))
+    if state.get("_evt_text") is not None:
+        txt = state.pop("_evt_text")
+        d = describe(consequence)
+        home.feed_add(state, txt, "" if d == "No change" else d)
     return consequence
 
 def log(state, text):
@@ -158,11 +192,11 @@ def draw_wrapped_text(screen, text, selected_font, colour, rect, line_spacing=5,
 
 def get_option_rects(count, rect):
     option_width = min(300, (rect.width - 20 * (count - 1)) // count)
-    option_height = 60
+    option_height = 64
     gap = 20
     total_width = option_width * count + gap * (count - 1)
     start_x = rect.centerx - total_width // 2
-    y = rect.y + 110
+    y = rect.y + 172
     return [pygame.Rect(start_x + i * (option_width + gap), y, option_width, option_height)
             for i in range(count)]
 
@@ -214,61 +248,102 @@ def scene_background(stage_colour):
     _scene_cache[key] = surf
     return surf
 
+RAIL_W = 78
+
+_tiny = pygame.font.Font(None, 18)
+
+HUB_BG = ((246, 243, 251), (232, 228, 244))
+NAV_BG = ((40, 54, 102), (22, 28, 62))
+NAV_TXT = (196, 204, 232)
+CHIP = (241, 237, 250)
+_hub_bg = {}
+
+def hub_background():
+    """Light lavender page with a navy navigation rail, drawn once."""
+    surf = _hub_bg.get("bg")
+    if surf is None:
+        surf = make_vertical_gradient(SCREEN_WIDTH, SCREEN_HEIGHT, *HUB_BG).convert_alpha()
+        surf.blit(make_vertical_gradient(RAIL_W, SCREEN_HEIGHT, *NAV_BG), (0, 0))
+        _hub_bg["bg"] = surf
+    return surf
+
+def _chip(screen, x, y, text, fnt=None, fg=INK, bg=CHIP, pad=10):
+    fnt = fnt or small_font
+    w = fnt.size(text)[0] + pad * 2
+    r = pygame.Rect(x, y, w, 26)
+    draw_rounded_rect(screen, bg, r, radius=13)
+    draw_text(screen, text, fnt, fg, r.x + pad, r.centery - fnt.get_height() // 2)
+    return r
+
+def draw_key_stats(screen, stats, displayed_stats, x0, y0, w=58, gap=8):
+    """The seven stats as compact labelled bars."""
+    for i, stat in enumerate(STAT_ORDER):
+        x = x0 + i * (w + gap)
+        draw_text(screen, STAT_LABELS[stat], _tiny, MUTED, x, y0)
+        val = str(int(round(stats[stat])))
+        draw_text(screen, val, font, INK, x, y0 + 14)
+        bar = pygame.Rect(x, y0 + 40, w, 7)
+        draw_rounded_rect(screen, (230, 226, 240), bar, radius=4)
+        filled = int(bar.w * displayed_stats[stat] / 100)
+        if filled > 0:
+            draw_rounded_rect(screen, STAT_COLORS[stat], (bar.x, bar.y, max(filled, 7), bar.h), radius=4)
+
 def draw_hub_frame(screen, player_name, age, stage, stats, displayed_stats,
                    hair_colour, hairstyle, skin_tone, facial_hair, gender,
                    icons, background, fallback_bg, active_tab, panel_open, state, mouse_pos):
     stage_colour = STAGE_COLORS.get(stage, LIGHT_GREY)
-    screen.blit(scene_background(stage_colour), (0, 0))
+    screen.blit(hub_background(), (0, 0))
 
-    # left column: a portrait that fades into the room, then plain text
-    pw, ph = 196, 244
-    px, py = 10, 62
-    glow = pygame.Surface((pw, ph), pygame.SRCALPHA)
-    pygame.draw.circle(glow, (*stage_colour, 235), (pw // 2, 100), 88)
-    screen.blit(glow, (px, py))
-    surf = pygame.Surface((pw, ph), pygame.SRCALPHA)
-    draw_avatar(surf, pygame.Rect(0, 0, pw, ph), gender, hair_colour, hairstyle, skin_tone, facial_hair, age, stats["mental"], state.get("feat"))
-    fade = pygame.Surface((pw, ph), pygame.SRCALPHA)
-    for yy in range(ph):
-        a = 255 if yy < ph * 0.8 else int(255 * (1 - (yy - ph * 0.8) / (ph * 0.2)))
-        pygame.draw.line(fade, (255, 255, 255, max(a, 0)), (0, yy), (pw, yy))
-    surf.blit(fade, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-    screen.blit(surf, (px, py))
+    # header card: who you are, money and actions, then your key stats
+    head = pygame.Rect(RAIL_W + 10, 8, SCREEN_WIDTH - RAIL_W - 18, 88)
+    draw_card(screen, head, radius=16)
+    name_font = title_font if title_font.size(player_name)[0] <= 300 else font
+    draw_text(screen, _trim(player_name, name_font, 300), name_font, INK, head.x + 16, head.y + (6 if name_font is title_font else 16))
+    x = head.x + 16
+    x = _chip(screen, x, head.y + 52, f"Age {age} · {stage}").right + 6
+    coin_r = _chip(screen, x, head.y + 52, "     " + fmt_short(state["money"]), fg=(150, 104, 20), bg=(255, 241, 206))
+    pygame.draw.circle(screen, (240, 190, 70), (coin_r.x + 16, coin_r.centery), 7)
+    pygame.draw.circle(screen, (200, 150, 40), (coin_r.x + 16, coin_r.centery), 7, 2)
+    x = coin_r.right + 6
+    owed = state.get("debt", 0)
+    if owed:
+        x = _chip(screen, x, head.y + 52, f"Debt {fmt_short(owed)}", fg=(190, 60, 60), bg=(253, 228, 228)).right + 6
+    left = state["actions_remaining"]
+    _chip(screen, x, head.y + 52, f"{left} actions", fg=(160, 80, 20) if left else MUTED, bg=(255, 232, 210) if left else CHIP)
+    draw_key_stats(screen, stats, displayed_stats, head.right - 7 * 66 - 6, head.y + 18)
 
-    draw_text(screen, _trim(player_name, title_font, 180), title_font, INK, 20, 304)
-    draw_text(screen, f"Age {age}  ·  {stage}", small_font, MUTED, 22, 334)
+    # content: the tabs draw into CONTENT_RECT on a white card
+    draw_card(screen, CONTENT_RECT.inflate(16, 14), radius=18)
 
-    snap = state.get("_snapshot", [])
-    y = 366
-    for label, value in snap[:7]:
-        draw_text(screen, str(label).upper(), small_font, MUTED, 22, y)
-        draw_text(screen, _trim(str(value), font, 168), font, INK, 22, y + 15)
-        y += 41
+    # right column: portrait (click to edit your look), then a facts card
+    colx = CONTENT_RECT.right + 14
+    pw, ph = SCREEN_WIDTH - colx - 8, 150
+    portrait_rect = pygame.Rect(colx, 105, pw, ph)
+    draw_card(screen, portrait_rect, radius=16)
+    halo = pygame.Surface((pw, ph), pygame.SRCALPHA)
+    pygame.draw.circle(halo, (*lerp_col(stage_colour, (255, 255, 255), 0.55), 255), (pw // 2, ph // 2 + 4), min(pw, ph) // 2 - 6)
+    screen.blit(halo, portrait_rect.topleft)
+    surf = pygame.Surface((pw, ph - 4), pygame.SRCALPHA)
+    draw_avatar(surf, pygame.Rect(0, 0, pw, ph - 4), gender, hair_colour, hairstyle, skin_tone, facial_hair, age, stats["mental"], state.get("feat"))
+    screen.blit(surf, (portrait_rect.x, portrait_rect.y + 2))
+    if portrait_rect.collidepoint(mouse_pos):
+        draw_text(screen, "Edit look", _tiny, MUTED, portrait_rect.centerx, portrait_rect.bottom - 10, centre=True)
+    facts = pygame.Rect(colx, portrait_rect.bottom + 8, pw, 318)
+    draw_card(screen, facts, radius=16)
+    y = facts.y + 10
+    for label, value in state.get("_snapshot", [])[:7]:
+        lab = str(label).upper().replace("FRIENDS / ENEMIES", "FRIENDS").replace("FAMILY WEALTH", "WEALTH")
+        draw_text(screen, _trim(lab, _tiny, pw - 16), _tiny, MUTED, facts.x + 9, y)
+        draw_text(screen, _trim(str(value), small_font, pw - 16), small_font, INK, facts.x + 9, y + 13)
+        y += 43
 
-    # centre: latest news, straight on the background
-    draw_text(screen, "LATEST", small_font, MUTED, 236, 76)
-    journal = state.get("journal", [])[-6:]
-    y = 102
-    if not journal:
-        draw_text(screen, "Your story starts here.", font, MUTED, 236, y)
-    for a, t in reversed(journal):
-        draw_text(screen, f"{a}", font, ACCENT, 236, y)
-        draw_text(screen, _trim(t, font, 340), font, INK, 270, y)
-        y += 33
-
-    render_player_stats(screen, stats, displayed_stats, icons, pygame.Rect(640, 76, 236, 224), card=False)
-
-    # a very light wash behind the active tab's content
-    wash = pygame.Surface(CONTENT_RECT.inflate(18, 16).size, pygame.SRCALPHA)
-    pygame.draw.rect(wash, (255, 250, 244, 110), wash.get_rect(), border_radius=18)
-    screen.blit(wash, CONTENT_RECT.inflate(18, 16).topleft)
-
-    toggle_rect = pygame.Rect(0, 0, 0, 0)
-    draw_money_and_actions(screen, state, mouse_pos)
     age_up_rect, skip_rect = draw_age_up_button(screen, mouse_pos, state["life_event_resolved"])
     tab_rects = draw_nav(screen, active_tab, mouse_pos, state.get("_badge", 0))
+    return {"toggle": pygame.Rect(0, 0, 0, 0), "tabs": tab_rects, "age_up": age_up_rect, "skip": skip_rect,
+            "portrait": portrait_rect}
 
-    return {"toggle": toggle_rect, "tabs": tab_rects, "age_up": age_up_rect, "skip": skip_rect}
+def lerp_col(a, b, t):
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 def draw_side_panel_toggle(screen, mouse_pos, badge=0):
     rect = pygame.Rect(16, 12, 78, 38)
@@ -369,28 +444,29 @@ def draw_side_panel(screen, active_tab, mouse_pos, badge=0):
     return tab_rects
 
 def draw_nav(screen, active_tab, mouse_pos, badge=0):
-    """The tab row is always on screen along the bottom: icon over label."""
+    """The menu: a navy rail down the left, always on screen."""
     rects = {}
-    w = 62
-    x = 4
+    h = 63
+    y = 10
     for tab in TABS:
-        r = pygame.Rect(x, 644, w - 2, 54)
+        r = pygame.Rect(0, y, RAIL_W, h - 2)
         sub, col = TAB_INFO.get(tab, ("", ACCENT))
         selected = tab == active_tab
         hovered = r.collidepoint(mouse_pos)
-        cx, cy = r.centerx, 664
+        cx, cy = RAIL_W // 2 + 2, r.y + 24
+        if selected or hovered:
+            hl = pygame.Surface((RAIL_W - 10, h - 6), pygame.SRCALPHA)
+            pygame.draw.rect(hl, (255, 255, 255, 46 if selected else 20), hl.get_rect(), border_radius=12)
+            screen.blit(hl, (5, r.y + 2))
         if selected:
-            pygame.draw.circle(screen, (255, 255, 255), (cx, cy), 22)
-            pygame.draw.circle(screen, col, (cx, cy), 22, 3)
-        elif hovered:
-            pygame.draw.circle(screen, (255, 255, 255, 120), (cx, cy), 21)
+            pygame.draw.rect(screen, ACCENT, (0, r.y + 10, 4, r.h - 20), border_radius=2)
         _tab_icon(screen, tab, cx, cy, col)
-        draw_text(screen, TAB_LABEL.get(tab, tab), small_font, (205, 85, 20) if selected else INK, cx, 690, centre=True)
+        draw_text(screen, TAB_LABEL.get(tab, tab), small_font, WHITE if selected else NAV_TXT, cx, r.y + 49, centre=True)
         if tab == "People" and badge:
-            pygame.draw.circle(screen, (225, 70, 90), (cx + 18, cy - 14), 9)
-            draw_text(screen, str(badge), small_font, WHITE, cx + 18, cy - 14, centre=True)
+            pygame.draw.circle(screen, (225, 70, 90), (cx + 16, cy - 14), 9)
+            draw_text(screen, str(badge), small_font, WHITE, cx + 16, cy - 14, centre=True)
         rects[tab] = r
-        x += w
+        y += h
     return rects
 
 def draw_money_and_actions(screen, state, mouse_pos):
@@ -416,20 +492,35 @@ def draw_money_and_actions(screen, state, mouse_pos):
     draw_text(screen, str(left), small_font, INK, actions_rect.right - 20, actions_rect.y + 11, centre=False)
 
 def draw_age_up_button(screen, mouse_pos, resolved):
-    rect = pygame.Rect(640, 652, 150, 40)
-    skip_rect = pygame.Rect(798, 652, 92, 40)
+    colx = CONTENT_RECT.right + 14
+    w = SCREEN_WIDTH - colx - 6
+    rect = pygame.Rect(colx, 590, w, 44)
+    skip_rect = pygame.Rect(colx, 642, w, 34)
     draw_pill(screen, rect, "Age Up" if resolved else "Age Up (skip)", font if resolved else small_font, mouse_pos, primary=True)
     draw_pill(screen, skip_rect, f"Skip {SKIP_YEARS} yrs", small_font, mouse_pos)
     return rect, skip_rect
 
+def draw_latest(screen, rect, state):
+    y = rect.y + 292
+    draw_text(screen, "LATEST", small_font, MUTED, rect.x + 8, y)
+    journal = state.get("journal", [])[-7:]
+    y += 24
+    if not journal:
+        draw_text(screen, "Your story starts here.", font, MUTED, rect.x + 8, y)
+    for a, t in reversed(journal):
+        draw_text(screen, f"{a}", font, ACCENT, rect.x + 8, y)
+        draw_text(screen, _trim(t, font, rect.width - 70), font, INK, rect.x + 52, y)
+        y += 30
+
 def draw_life_tab(screen, rect, choice_text, options, selected_option, mouse_pos, resolved, chosen_index,
-                  result_text="", more_events=False, event_number=1, event_total=1):
-    event_rect = pygame.Rect(rect.x, rect.y, rect.width, 92)
-    draw_card(screen, event_rect, fill=(255, 250, 244), radius=14)
-    pygame.draw.rect(screen, ACCENT, (event_rect.x, event_rect.y + 14, 5, event_rect.h - 28), border_radius=3)
-    draw_wrapped_text(screen, choice_text, font, INK, event_rect.inflate(-40, 0).move(8, 0))
-    if event_total > 1:
-        draw_text(screen, f"Event {event_number} of {event_total}", small_font, MUTED, event_rect.right - 108, event_rect.y + 8)
+                  result_text="", more_events=False, event_number=1, event_total=1, age=0, chip_rows=None):
+    event_rect = pygame.Rect(rect.x, rect.y, rect.width, 160)
+    draw_card(screen, event_rect, fill=(255, 250, 244), radius=16)
+    scene_rect = pygame.Rect(event_rect.x + 10, event_rect.y + 10, 200, 140)
+    scenes.draw_scene(screen, scene_rect, scenes.classify(choice_text))
+    kick = f"AGE {age}" + (f"  ·  EVENT {event_number} OF {event_total}" if event_total > 1 else "")
+    draw_text(screen, kick, small_font, ACCENT, event_rect.x + 226, event_rect.y + 16)
+    draw_wrapped_text(screen, choice_text, font, INK, pygame.Rect(event_rect.x + 216, event_rect.y + 36, event_rect.width - 236, 112), centre=False)
 
     rects = get_option_rects(len(options), rect)
     for index, (option_text, orect) in enumerate(zip(options, rects)):
@@ -443,17 +534,23 @@ def draw_life_tab(screen, rect, choice_text, options, selected_option, mouse_pos
         draw_card(screen, draw_rect, fill=fill_colour, radius=14, shadow=not resolved or is_chosen)
         if hovered:
             pygame.draw.rect(screen, ACCENT, draw_rect, 2, border_radius=14)
-        draw_wrapped_text(screen, option_text, small_font, WHITE if is_chosen else INK, draw_rect)
+        draw_wrapped_text(screen, option_text, small_font, WHITE if is_chosen else INK, draw_rect.inflate(0, -20).move(0, -7))
+        row = (chip_rows or [])[index] if chip_rows and index < len(chip_rows) else []
+        if row and not resolved:
+            total = sum(home._TINY.size(t)[0] for t, _ in row) + 10 * (len(row) - 1)
+            cx = draw_rect.centerx - total // 2
+            for t, col in row:
+                draw_text(screen, t, home._TINY, col, cx, draw_rect.bottom - 20)
+                cx += home._TINY.size(t)[0] + 10
 
     next_rect = None
     if resolved:
-        draw_text(screen, result_text, small_font, INK, rect.centerx, rect.y + 192, centre=True)
+        draw_text(screen, result_text, small_font, INK, rect.centerx, rect.y + 246, centre=True)
         if more_events:
-            next_rect = pygame.Rect(rect.centerx - 90, rect.y + 218, 180, 38)
+            next_rect = pygame.Rect(rect.centerx - 90, rect.y + 258, 180, 30)
             draw_pill(screen, next_rect, "Next event", small_font, mouse_pos, primary=True)
-        else:
-            draw_text(screen, "Use the Menu to visit People, Education, Career or Shop, then Age Up.",
-                      small_font, MUTED, rect.centerx, rect.y + 232, centre=True)
+    else:
+        draw_text(screen, "Choose what you do, or visit the menu on the left and Age Up when ready.", home._TINY, MUTED, rect.centerx, rect.y + 252, centre=True)
     return next_rect
 
 def draw_life_graph(screen, history, rect):
@@ -484,7 +581,9 @@ def draw_life_graph(screen, history, rect):
             lx = rect.x + 14
             ly += 20
 
-async def game_over(screen, age, reason, history, life_score, summary):
+async def game_over(screen, age, reason, history, life_score, summary, ctx=None):
+    if ctx:
+        return await gameover.show(screen, ctx)
     clock = pygame.time.Clock()
     while True:
         for event in pygame.event.get():
@@ -561,17 +660,51 @@ async def instructions_screen(screen):
         clock.tick(60)
         await asyncio.sleep(0)
 
+_menu_bg = {}
+
+def menu_backdrop():
+    """Navy night sky over a city skyline, drawn once."""
+    surf = _menu_bg.get("bg")
+    if surf is not None:
+        return surf
+    W, H = SCREEN_WIDTH, SCREEN_HEIGHT
+    surf = make_vertical_gradient(W, H, (52, 60, 118), (20, 22, 52)).convert_alpha()
+    rnd = random.Random(7)
+    for _ in range(90):
+        x, y = rnd.randint(0, W), rnd.randint(0, 380)
+        pygame.draw.circle(surf, (255, 255, 255, rnd.choice([60, 120, 200])), (x, y), rnd.choice([1, 1, 2]))
+    glow = pygame.Surface((W, H), pygame.SRCALPHA)
+    for r_, a_ in ((80, 10), (62, 16), (48, 24)):
+        pygame.draw.circle(glow, (255, 214, 170, a_), (760, 120), r_)
+        surf.blit(glow, (0, 0)); glow.fill((0, 0, 0, 0))
+    pygame.draw.circle(glow, (255, 236, 210, 255), (760, 120), 34)
+    surf.blit(glow, (0, 0))
+    x = 0
+    while x < W:
+        w, h = rnd.randint(40, 90), rnd.randint(90, 260)
+        pygame.draw.rect(surf, (30, 30, 70), (x, H - h, w, h))
+        for wy in range(H - h + 12, H - 8, 22):
+            for wx in range(x + 8, x + w - 8, 14):
+                if rnd.random() < 0.28:
+                    pygame.draw.rect(surf, (255, 206, 130), (wx, wy, 4, 6))
+        x += w + rnd.randint(0, 8)
+    shade = pygame.Surface((W, H), pygame.SRCALPHA)
+    for i in range(420):     # darken the left side so the menu reads clearly
+        pygame.draw.line(shade, (16, 18, 46, int(200 * (1 - i / 420))), (i, 0), (i, H))
+    surf.blit(shade, (0, 0))
+    _menu_bg["bg"] = surf
+    return surf
+
+_MENU_CAST = [("Female", (66, 44, 34), "Wavy", 2, {"top": "Overalls", "outfit": 3, "earrings": "Hoops"}),
+              ("Male", (40, 46, 66), "Quiff", 5, {"top": "Hoodie", "outfit": 9}),
+              ("Female", (30, 26, 28), "Curly", 6, {"top": "Blazer", "outfit": 1})]
+
 async def menu_screen(screen):
-    background = load_image("images/menu_background.jpg", (SCREEN_WIDTH, SCREEN_HEIGHT))
-    fallback_bg = make_vertical_gradient(SCREEN_WIDTH, SCREEN_HEIGHT, (255, 214, 179), (255, 255, 255))
+    from constants import SKIN_TONES
     clock = pygame.time.Clock()
-
-    button_width = 300
-    button_height = 65
-    x = (SCREEN_WIDTH - button_width) // 2
-
-    labels = (["Continue"] if has_save() else []) + ["Start", "Instructions", "Exit"]
-    buttons = {label: pygame.Rect(x, 270 + i * 80, button_width, button_height) for i, label in enumerate(labels)}
+    labels = (["Continue"] if has_save() else []) + ["New life", "How to play", "Exit"]
+    buttons = {label: pygame.Rect(64, 300 + i * 66, 300, 54) for i, label in enumerate(labels)}
+    actions = {"Continue": "continue", "New life": "start"}
 
     while True:
         for event in pygame.event.get():
@@ -581,34 +714,38 @@ async def menu_screen(screen):
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for label, rect in buttons.items():
                     if rect.collidepoint(event.pos):
-                        if label == "Start":
-                            return "start"
-                        if label == "Continue":
-                            return "continue"
-                        if label == "Instructions":
+                        if label in actions:
+                            return actions[label]
+                        if label == "How to play":
                             await instructions_screen(screen)
                         if label == "Exit":
                             pygame.quit()
                             raise SystemExit
 
-        if background:
-            screen.blit(background, (0, 0))
-        else:
-            screen.blit(fallback_bg, (0, 0))
-
-        draw_text(screen, "LifeForge", title_font, INK, SCREEN_WIDTH // 2, 150, centre=True)
-        draw_text(screen, "build 5: family, business, look editor", small_font, MUTED, SCREEN_WIDTH // 2, 186, centre=True)
-        draw_text(screen, "Every choice shapes the life you live.", small_font, DARK_GREY,
-                  SCREEN_WIDTH // 2, 200, centre=True)
+        screen.blit(menu_backdrop(), (0, 0))
+        draw_text(screen, "LifeForge", title_font, WHITE, 64, 150)
+        draw_text(screen, "Your story. Your choices.", font, (255, 196, 160), 66, 200)
+        draw_text(screen, "Big dreams, small choices, real consequences.", small_font, (190, 196, 230), 66, 232)
 
         mouse_pos = pygame.mouse.get_pos()
-        for label, rect in buttons.items():
+        for n, (label, rect) in enumerate(buttons.items()):
             hovered = rect.collidepoint(mouse_pos)
-            fill_colour = ACCENT if hovered else WHITE
-            draw_rect = rect.move(0, -3) if hovered else rect
-            draw_rounded_rect(screen, fill_colour, draw_rect, radius=12)
-            pygame.draw.rect(screen, OUTLINE, draw_rect, 2, border_radius=12)
-            draw_text(screen, label, font, INK, draw_rect.centerx, draw_rect.centery, centre=True)
+            primary = n == 0
+            r = rect.move(4, 0) if hovered else rect
+            if primary:
+                draw_rounded_rect(screen, (255, 168, 100) if hovered else (246, 120, 100), r, radius=14)
+            else:
+                pane = pygame.Surface(r.size, pygame.SRCALPHA)
+                pygame.draw.rect(pane, (255, 255, 255, 48 if hovered else 26), pane.get_rect(), border_radius=14)
+                screen.blit(pane, r.topleft)
+            draw_text(screen, label, font, WHITE, r.x + 24, r.centery - font.get_height() // 2)
+
+        # a few faces from the world, on cards
+        for i, (g, hc, st, sk, ft) in enumerate(_MENU_CAST):
+            card = pygame.Rect(470 + i * 138, 250 + (24 if i == 1 else 0), 126, 168)
+            draw_card(screen, card, radius=16)
+            draw_avatar(screen, card.inflate(-8, -8), g, hc, st, SKIN_TONES[sk], "None", 24, 80, ft)
+        draw_text(screen, "Royals, idols, tycoons, or just you.", small_font, (210, 214, 240), 470, 470)
 
         pygame.display.flip()
         clock.tick(60)
@@ -620,12 +757,12 @@ def roll_stats():
             "looks": random.randint(30, 85), "athletic": random.randint(30, 80),
             "wealth": random.randint(40, 65)}
 
-async def stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle, skin_tone, facial_hair, feat=None):
+async def stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle, skin_tone, facial_hair, feat=None, preset=None):
     """BitLife-style: you are born with random stats and can re-roll until
     you like them."""
     clock = pygame.time.Clock()
     fallback_bg = make_vertical_gradient(SCREEN_WIDTH, SCREEN_HEIGHT, (255, 235, 240), (255, 255, 255))
-    stats = roll_stats()
+    stats = dict(preset) if preset else roll_stats()
     traits = random.sample(TRAITS, 2)
     reroll = pygame.Rect(SCREEN_WIDTH // 2 - 230, 600, 210, 50)
     start = pygame.Rect(SCREEN_WIDTH // 2 + 20, 600, 210, 50)
@@ -635,13 +772,13 @@ async def stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle,
                 pygame.quit()
                 raise SystemExit
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
+                if event.key == pygame.K_r and not preset:
                     stats = roll_stats()
                     traits = random.sample(TRAITS, 2)
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     return stats, traits
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if reroll.collidepoint(event.pos):
+                if reroll.collidepoint(event.pos) and not preset:
                     stats = roll_stats()
                     traits = random.sample(TRAITS, 2)
                 elif start.collidepoint(event.pos):
@@ -665,7 +802,7 @@ async def stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle,
             pygame.draw.rect(screen, OUTLINE, bar, 2, border_radius=10)
             draw_text(screen, str(stats[stat]), small_font, INK, bar.x + 8, bar.y + 5)
         mouse = pygame.mouse.get_pos()
-        for r, label in ((reroll, "Re-roll (R)"), (start, "Start life")):
+        for r, label in (((reroll, "Re-roll (R)"),) if not preset else ()) + ((start, "Start life"),):
             draw_rounded_rect(screen, ACCENT if r.collidepoint(mouse) else WHITE, r, radius=10)
             pygame.draw.rect(screen, OUTLINE, r, 2, border_radius=10)
             draw_text(screen, label, font, INK, r.centerx, r.centery, centre=True)
@@ -686,7 +823,9 @@ async def run_game(screen, resume=None):
         feat = sel[7] if len(sel) > 7 else {}
         if gender is None:
             return
-        stats, player_traits = await stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle, skin_tone, facial_hair, feat)
+        scenario = await scenarios.scenario_screen(screen)
+        preset = scenario["stats"]() if scenario.get("stats") else None
+        stats, player_traits = await stats_roll_screen(screen, player_name, gender, hair_colour, hairstyle, skin_tone, facial_hair, feat, preset)
 
     icons = {
         "physical": load_image("images/physical_icon.png"),
@@ -715,7 +854,8 @@ async def run_game(screen, resume=None):
         state["actions_used"] = {}
         state["actions_remaining"] = max(state.get("actions_remaining", 0), ACTIONS_PER_YEAR)
     else:
-        people = generate_family(skin_tone, hair_colour, {k: stats[k] for k in ('looks', 'social', 'academic', 'athletic', 'mental') if k in stats})
+        people = generate_family(skin_tone, hair_colour, {k: stats[k] for k in ('looks', 'social', 'academic', 'athletic', 'mental') if k in stats}, scenario)
+        celebrity.seed(people)
         friends = []
         partner = None
         career = {"education": "None", "enrolled": False, "uni_target": None, "uni_years_done": 0,
@@ -748,10 +888,29 @@ async def run_game(screen, resume=None):
             "aspiration": random.choice(list(ASPIRATIONS)),
             "aspiration_done": False,
         }
-        log(state, f"Born into a {family_wealth.lower()} family.")
+        state["scenario"] = scenario["id"]
+        station.setup(state, scenario["id"])
+        log(state, scenario["intro"] or f"Born into a {family_wealth.lower()} family.")
+        if scenario.get("title"):
+            titles.grant(state, scenario["title"], log=lambda t: log(state, t))
+        if scenario.get("heir_to"):
+            pars = [p for p in people if p["relation"] in ("Mother", "Father")]
+            if pars:
+                holder = random.choice(pars)
+                if scenario["heir_to"] == "king":
+                    state["heir_to"] = {"kind": "king", "holder_name": holder["name"]}
+                else:
+                    state["heir_to"] = {"kind": "peer", "rank": random.randint(0, 3), "place": random.choice(titles.PLACES),
+                                        "holder_name": holder["name"]}
+                    log(state, f"Your {holder['relation'].lower()}, {holder['name']}, holds a title you will inherit.")
+        if scenario["id"] == "royal2":
+            log(state, "Your older sibling is first in line to the throne.")
+        elif scenario["id"] == "royal1":
+            log(state, "You are first in line to the throne.")
         _par = {p["relation"]: p for p in worldjobs.parents_of(people)}
         if len(_par) == 2:
             log(state, f"Your mother is a {_par['Mother']['job_title'].lower()} and your father is a {_par['Father']['job_title'].lower()}.")
+        celebrity.setup(state, career, people, lambda t: log(state, t))
         log(state, f"{player_name} was born. Personality: {', '.join(player_traits)}.")
         log(state, f"Aspiration: {state['aspiration']} ({ASPIRATIONS[state['aspiration']][0]}).")
 
@@ -805,11 +964,13 @@ async def run_game(screen, resume=None):
     profile_note = ""
     journal_scroll = 0
     panel_open = False
+    life_regions = {}
     last_regions = {"toggle": pygame.Rect(0, 0, 0, 0), "tabs": {}, "age_up": pygame.Rect(0, 0, 0, 0),
                     "skip": pygame.Rect(0, 0, 0, 0)}
     last_tab_buttons = {}
     next_rect = None
     skip_left = 0
+    skip_info = None
 
     age = resume["age"] if resume else 0
     clock = pygame.time.Clock()
@@ -824,16 +985,22 @@ async def run_game(screen, resume=None):
             edu_line = "In school"
         fame_v = career.get("fame", 0)
         snap = [("Education", edu_line if edu_line != "None" else "No degree"),
-                ("Job", "In prison" if state.get("jail") else (career["job"]["title"] if career["job"] else ("Student" if age < 18 else "Unemployed"))),
+                ("Job", "In prison" if state.get("jail") else (station.job_label(state, age) or idol.job_label(state) or (career["job"]["title"] if career["job"] else ("Student" if age < 18 else "Unemployed")))),
                 ("Partner", (partner["name"] + (", spouse" if partner.get("married") else ", situationship" if partner.get("status") == "situationship" else "")) if partner else "Single"),
                 ("Friends / enemies", f"{sum(1 for f in friends if f['category'] != 'enemy')} / {sum(1 for f in friends if f['category'] == 'enemy')}"),
-                ("Home", state["home"]["name"] if state.get("home") else ("With parents" if age < 24 and state.get("parents_ok") else "Renting" if age >= 18 else "Family home")),
+                ("Home", state["home"]["name"] if state.get("home") else station.home_label(state) or ("With parents" if age < 24 and state.get("parents_ok") else budget.rental(state)[1] if age >= 18 else "Family home")),
                 ("Family wealth", state.get("family_wealth", "Comfortable")),
                 ("Aspiration", state.get("aspiration", "")),
                 ("Fame" if fame_v else "Savings", f"{fame_v} ({__import__('career').fame_tier(fame_v)})" if fame_v else f"${fmt(state.get('savings', 0))}")]
         snap = [s_ for s_ in snap if s_[0] != "Aspiration"]
+        snap[1:1] = station.snapshot_rows(state) + idol.snapshot_rows(state) + publiclife.snapshot_rows(state)
+        if state.get("title"):
+            snap.insert(0, ("Title", titles.label(state, gender)))
         state["_snapshot"] = snap
         state["_friends"] = friends
+        state["_people"] = people
+        state["_partner"] = partner
+        state["_skin"] = skin_tone
         state["_has_partner"] = partner is not None
         state["_in_school"] = (5 <= age < 18) or bool(career.get("enrolled"))
         refresh_classmates(state, age, state["_in_school"], friends)
@@ -842,7 +1009,8 @@ async def run_game(screen, resume=None):
         state["_income"] = ((career["job"]["pay"] if career["job"] else 0) + (career["side_job"]["pay"] if career.get("side_job") else 0)
                             + (career["hustle"]["pay"] // 2 if career.get("hustle") else 0))
         state["parents_ok"] = any(p["relation"] in ("Mother", "Father") and p["closeness"] >= 35 for p in people)
-        ctx = {"career": career, "partner": partner, "friends": friends, "people": people,
+        state["_career"] = career
+        ctx = {"title": state.get("title"), "career": career, "partner": partner, "friends": friends, "people": people,
                "money": state["money"], "stats": stats}
         year_events = pick_year_events(
             age, ctx, choice_events[stage]["choices"], special_events.get(stage, {}),
@@ -850,6 +1018,9 @@ async def run_game(screen, resume=None):
         last_event_text[stage] = year_events[0][0]
         recent_events.extend(t for t, _ in year_events)
         del recent_events[:-12]
+        _beat = stories.story_event(state, ctx, age)
+        if _beat:
+            year_events = year_events[:1] + [_beat]
 
         # save at the start of every year so you can continue later
         snapshot_state = {k: (sorted(v) if k == "owned" else v) for k, v in state.items()
@@ -859,6 +1030,11 @@ async def run_game(screen, resume=None):
                    "stats": stats, "history": stats_history, "last_event_text": last_event_text,
                    "recent_events": recent_events, "people": people, "friends": friends,
                    "partner": partner, "career": career, "state": snapshot_state, "age": age})
+
+        if skip_info is not None and skip_left <= 0:
+            after_snap = skipsummary.snapshot(state, career, people, friends, partner, stats)
+            await skipsummary.show(screen, skip_info, after_snap, skipsummary.highlights(state, skip_info))
+            skip_info = None
 
         event_index = 0
         choice_text, option_data = year_events[0]
@@ -881,7 +1057,8 @@ async def run_game(screen, resume=None):
         if skip_left > 0:
             # skipping ahead: events resolve on their own
             for text, data in year_events:
-                pick = random.choice(list(data.keys()))
+                pick = lifeevents.autopilot_pick(data)
+                state["_evt_text"] = text
                 apply_consequence(state, data[pick])
                 log(state, f"{text} You chose: {pick}.")
             waiting = False
@@ -912,6 +1089,8 @@ async def run_game(screen, resume=None):
                         people_scroll = max(0, people_scroll - event.y)
                     elif active_tab == "Career":
                         career["scroll"] = max(0, career.get("scroll", 0) - event.y)
+                    elif active_tab == "Family":
+                        state["_fam_scroll"] = max(0, state.get("_fam_scroll", 0) - event.y * 40)
 
                 if event.type == pygame.MOUSEMOTION and active_tab == "Life" and chosen_index is None:
                     selected_option = None
@@ -926,7 +1105,7 @@ async def run_game(screen, resume=None):
                         panel_open = not panel_open
                         continue
 
-                    if pygame.Rect(10, 62, 196, 244).collidepoint(mx, my):
+                    if last_regions.get("portrait", pygame.Rect(0, 0, 0, 0)).collidepoint(mx, my):
                         look = {"hair": hair_colour, "style": hairstyle, "skin": skin_tone, "facial": facial_hair,
                                 "feat": dict(state.get("feat") or {})}
                         look = await appearance.appearance_window(screen, look, gender, age, player_name)
@@ -975,7 +1154,10 @@ async def run_game(screen, resume=None):
                         pick = handle_decision_click(mx, my, CONTENT_RECT, romance.LABELS[inbox[0]["kind"]])
                         if pick:
                             inv = inbox.pop(0)
-                            if inv["kind"] in ("cheated", "official", "temptation", "ringchoice", "weddingchoice", "proposed", "prenup", "prenupask"):
+                            if inv["kind"] == "surprisebaby":
+                                partner = kids.resolve_surprise(inv, pick, state, people, friends, stats, skin_tone, partner,
+                                                                lambda t: log(state, t))
+                            elif inv["kind"] in ("cheated", "official", "temptation", "ringchoice", "weddingchoice", "proposed", "prenup", "prenupask"):
                                 partner = romance.resolve_card(inv, pick, partner, friends, state, lambda t: log(state, t))
                                 if inv.pop("_retry", False):
                                     inbox.insert(0, inv)
@@ -1052,18 +1234,37 @@ async def run_game(screen, resume=None):
                         waiting = False
                         continue
                     if last_regions["skip"].collidepoint(mx, my):
-                        skip_left = SKIP_YEARS - 1
+                        skip_left = SKIP_YEARS
+                        skip_info = skipsummary.snapshot(state, career, people, friends, partner, stats)
                         log(state, f"Skipped ahead {SKIP_YEARS} years.")
                         waiting = False
                         continue
 
                     if active_tab == "Life":
+                        lr = life_regions
+                        if lr.get("surrender") and lr["surrender"].collidepoint(mx, my):
+                            state["_surrender_ask"] = True
+                            continue
+                        if lr.get("sur_no") and lr["sur_no"].collidepoint(mx, my):
+                            state["_surrender_ask"] = False
+                            continue
+                        if lr.get("sur_yes") and lr["sur_yes"].collidepoint(mx, my):
+                            state["_surrender_ask"] = False
+                            state["_surrender"] = True
+                            waiting = False
+                            continue
+                        hit_person = next((p for p, r in lr.get("people", []) if r.collidepoint(mx, my)), None)
+                        if hit_person is not None and not (chosen_index is None and any(o.collidepoint(mx, my) for o in get_option_rects(len(options), CONTENT_RECT))):
+                            profile_person = hit_person
+                            active_tab = "People"
+                            continue
                         if chosen_index is None:
                             for index, orect in enumerate(get_option_rects(len(options), CONTENT_RECT)):
                                 if orect.collidepoint(mx, my):
+                                    state["_evt_text"] = choice_text
                                     outcome = apply_consequence(state, option_data[options[index]])
                                     chosen_index = index
-                                    result_text = describe(outcome)
+                                    result_text = describe(outcome) + "  ·  " + home.feeling(outcome)
                                     log(state, f"{choice_text} You chose: {options[index]}.")
                                     state["life_event_resolved"] = event_index == len(year_events) - 1
                                     break
@@ -1118,14 +1319,19 @@ async def run_game(screen, resume=None):
                                              "why": "Bigger weddings cost more but mean more."})
                         elif result == "baby" and partner:
                             same_sex = partner.get("gender") == gender
-                            if random.random() < (0.5 if partner.get("married") else 0.35) * (0.85 if same_sex else 1):
-                                kid = make_child(state["player_traits"] + partner["traits"], [stats, partner["stats"]])
-                                kid["look"]["skin"] = list(random.choice([skin_tone, tuple(partner["look"]["skin"])]))
-                                people.append(kid)
-                                stats["mental"] = min(100, stats["mental"] + 2)
-                                log(state, ("Adopted " if same_sex else "Welcomed ") + f"{'son' if kid['relation'] == 'Son' else 'daughter'} {kid['name']}.")
+                            if same_sex:
+                                # no natural pregnancy: send them to the adoption / IVF options, refund the action
+                                state["actions_remaining"] += 1
+                                state["actions_used"]["__baby__"] = 0
+                                state["_fam_view"] = "grow"
+                                active_tab = "Family"
+                                log(state, "You looked into adoption, IVF and surrogacy.")
+                            elif random.random() < kids.natural_chance(state, partner, age):
+                                kid = kids.add_child(state, people, stats, partner, skin_tone, "born")
+                                log(state, f"Welcomed {'son' if kid['relation'] == 'Son' else 'daughter'} {kid['name']}.")
                             else:
-                                log(state, "The adoption didn't go through this year." if same_sex else "Tried for a baby but no luck this year.")
+                                log(state, "Tried for a baby but no luck this year."
+                                    + (" IVF or adoption (Family tab) could help." if age >= 35 else ""))
 
                     elif active_tab in ("Education", "Career") and state.get("jail"):
                         log(state, "You can't do that while you're in prison.")
@@ -1198,7 +1404,11 @@ async def run_game(screen, resume=None):
                         achievements.handle_toggle_click(mx, my, CONTENT_RECT, state)
 
                     elif active_tab == "Family":
-                        family.handle_family_click(mx, my, last_tab_buttons, state)
+                        fam_out = family.handle_family_click(mx, my, last_tab_buttons, state)
+                        if isinstance(fam_out, tuple) and fam_out[0] == "grow":
+                            kids.perform(fam_out[1], state, people, partner, stats, skin_tone, age, lambda t: log(state, t))
+                        if state.get("_surrender"):
+                            waiting = False
 
                     elif active_tab == "Shop":
                         handle_shop_click(mx, my, last_tab_buttons, state, age, lambda t: log(state, t))
@@ -1207,7 +1417,7 @@ async def run_game(screen, resume=None):
                 displayed_stats[stat] = lerp(displayed_stats[stat], stats[stat], 0.15)
 
             last_regions = draw_hub_frame(
-                screen, player_name, age, stage, stats, displayed_stats,
+                screen, titles.styled_name(state, player_name, gender), age, stage, stats, displayed_stats,
                 hair_colour, hairstyle, skin_tone, facial_hair, gender,
                 icons, background, stage_backgrounds[stage],
                 active_tab, panel_open, state, mouse_pos
@@ -1230,7 +1440,10 @@ async def run_game(screen, resume=None):
                 next_rect = draw_life_tab(screen, CONTENT_RECT, choice_text, options, selected_option,
                                           mouse_pos, chosen_index is not None, chosen_index,
                                           result_text, event_index < len(year_events) - 1,
-                                          event_index + 1, len(year_events))
+                                          event_index + 1, len(year_events), age,
+                                          [home.chips(state, option_data[o]) for o in options])
+                life_regions = home.draw_glance(screen, CONTENT_RECT, state, career, people, friends, partner, mouse_pos,
+                                                ASPIRATIONS, CONTENT_RECT.y + 292)
             elif active_tab == "People":
                 if career["job"]:
                     meet_label = "Meet a Coworker"
@@ -1274,14 +1487,17 @@ async def run_game(screen, resume=None):
             await asyncio.sleep(0)
 
         # ---- year end ----
+        if skip_left > 0:
+            lifeevents.autopilot_year(state, career, people, friends, partner, lambda t: log(state, t))
         worldjobs.update_family_wealth(state, people)
         _pm = worldjobs.pocket_money(state, worldjobs.parents_of(people), worldjobs.grandparents_of(people)) if age < 18 else (0, 0)
         state["_pocket"] = _pm
         before_edu = career["education"]
         apply_yearly_decline(stats, age)
         apply_passives(state)
-        advance_activities_year(state, lambda t: log(state, t))
+        advance_activities_year(state, lambda t: log(state, t), career)
         sports.sports_year(state, career, lambda t: log(state, t))
+        pathways.year(state, career, age, lambda t: log(state, t))
         was_married = bool(partner and partner.get("married"))
         was_merged = bool(partner and partner.get("merged"))
         partner = advance_relationships(people, friends, partner, lambda t: log(state, t))
@@ -1294,6 +1510,7 @@ async def run_game(screen, resume=None):
         partner, cards = romance.romance_year(
             state, age, partner, friends, lambda t: log(state, t),
             lambda: make_prospect(state, age, state["player_traits"], "Admirer"), career.get("fame", 0))
+        cards = list(cards) + kids.surprise_year(state, age, partner, friends, people, career, lambda t: log(state, t))
         state["_pending_inv"] = cards
         state["_has_partner"] = partner is not None
         if partner and partner.get("married"):
@@ -1308,10 +1525,19 @@ async def run_game(screen, resume=None):
                 stats["mental"] = max(0, stats["mental"] - 1)
                 log(state, "Money was tight raising your children.")
         partner = advance_deaths(people, friends, partner, state, lambda t: log(state, t))
+        titles.check_succession(state, people, lambda t: log(state, t))
+        station.year(state, career, people, lambda t: log(state, t))
+        idol.year(state, career, age, lambda t: log(state, t))
+        publiclife.year(state, career, age, lambda t: log(state, t))
+        titles.year(state, career, lambda t: log(state, t))
+        family.new_sibling(people, age, lambda t: log(state, t),
+                           chance=0.25 if state.get("scenario") in ("royal1", "noble") else 0.14)
         family.family_year(people, lambda t: log(state, t))
+        family.heirloom_year(state)
         if profile_person is not None and profile_person not in people + friends + state.get("classmates", []) + ([partner] if partner else []):
             profile_person = None
         advance_career_year(career, state, age)
+        celebrity.year(state, career, people)
         lifestyle.advance_lifestyle_year(state, career, age, lambda t: log(state, t))
         retirement_year(career, state, age)
         yearly_costs(state, career, age, state.get("parents_ok", False))
@@ -1334,7 +1560,9 @@ async def run_game(screen, resume=None):
 
         reason = None
         failed_stat = next((s for s in VITAL_STATS if stats[s] <= 0), None)
-        if failed_stat:
+        if state.get("_surrender"):
+            reason = "You gave up this life."
+        elif failed_stat:
             reason = f"{STAT_LABELS[failed_stat]} reached 0."
         elif age >= 75:
             # natural end of life: odds rise each year, lower with poor health
@@ -1364,11 +1592,13 @@ async def run_game(screen, resume=None):
             options = family.heirs(people, partner)
             if state.get("generation", 1) > 1:
                 summary.append(f"Generation {state['generation']} of the family.")
-            await game_over(screen, age, reason, stats_history, life_score, summary)
+            go_ctx = {"name": player_name, "gender": gender, "age": age, "reason": reason, "life_score": life_score,
+                      "look": {"hair": hair_colour, "style": hairstyle, "skin": skin_tone, "facial": facial_hair, "feat": state.get("feat")},
+                      "state": snap_state, "career": career, "people": people, "friends": friends, "partner": partner, "stats": stats}
+            await game_over(screen, age, reason, stats_history, life_score, summary, go_ctx)
             if options:
-                choice = await family.succession_screen(screen, final, options, age, player_name)
-                if choice:
-                    nxt = family.build_heir_save(final, choice)
+                nxt = await family.succession_flow(screen, final, options, age, player_name, "surrender" if state.get("_surrender") else "")
+                if nxt:
                     save_game(nxt)
                     return nxt
             return None
@@ -1378,8 +1608,9 @@ async def run_game(screen, resume=None):
         if skip_left > 0:
             skip_left -= 1
             # stop skipping at big moments, or when something is going badly
-            if (age in MILESTONE_AGES or any(stats[s] < 20 for s in VITAL_STATS)
-                    or age >= 75):
+            big = any(c.get("kind") in ("proposed", "cheated", "temptation", "surprisebaby")
+                      for c in (state.get("_pending_inv") or []))
+            if big or any(stats[s] < 20 for s in VITAL_STATS) or age >= 80:
                 skip_left = 0
                 log(state, f"Stopped skipping at age {age}.")
             await asyncio.sleep(0)

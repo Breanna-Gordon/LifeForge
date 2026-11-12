@@ -135,6 +135,8 @@ def eligible_jobs(career, state):
             j["any_of"] = None
             j["skills"] = {}
             j["pay"] = int(j["pay"] * (1 + fame / 50))
+        import pathways
+        j = pathways.credit_boost(j, state)
         need_prestige = max(0, j["min_prestige"] - (1 if career.get("experience", 0) >= 2 else 0))
         qualified = (EDUCATION_RANK[j["min_education"]] <= rank
                      and need_prestige <= prestige
@@ -338,6 +340,23 @@ def draw_side_job_row(screen, rect, mouse_pos, career, state, y, buttons):
     draw_button(screen, f, "Part-time jobs", mouse_pos)
     buttons["side_find"] = f
 
+def _view_toggles(screen, rect, mouse_pos, career, st):
+    """Work / Fame / Idol (and Estate for nobles) switches, top right."""
+    buttons = {}
+    view = career.setdefault("view", "work")
+    keys = [("work", "Work"), ("fame", "Fame"), ("idol", "Idol"), ("paths", "Paths")]
+    if st == "noble":
+        keys.insert(0, ("duties", "Estate"))
+    x = rect.right
+    for key, lab in reversed(keys):
+        vr = pygame.Rect(x - 68, rect.y - 4, 64, 24)
+        x -= 70
+        draw_rounded_rect(screen, ACCENT if view == key else (WHITE if not vr.collidepoint(mouse_pos) else (255, 236, 218)), vr, radius=10)
+        pygame.draw.rect(screen, OUTLINE, vr, 1, border_radius=10)
+        draw_text(screen, lab, small_font, WHITE if view == key else INK, vr.centerx, vr.centery, centre=True)
+        buttons["view_" + key] = vr
+    return buttons
+
 def draw_career_tab(screen, rect, mouse_pos, career, state):
     no_budget = state["actions_remaining"] <= 0
     mode = career.get("browsing_jobs")
@@ -387,22 +406,35 @@ def draw_career_tab(screen, rect, mouse_pos, career, state):
             draw_text(screen, "Scroll for more", small_font, DARK_GREY, rect.right - 120, rect.y + 2)
         return {"back": back_rect, "jobs": job_rects}
 
-    buttons = {}
-    view = career.setdefault("view", "work")
-    vw = pygame.Rect(rect.right - 170, rect.y - 4, 80, 24)
-    vf = pygame.Rect(rect.right - 84, rect.y - 4, 84, 24)
-    for key, vr, lab in (("work", vw, "Work"), ("fame", vf, "Fame")):
-        draw_rounded_rect(screen, ACCENT if view == key else (WHITE if not vr.collidepoint(mouse_pos) else (255, 236, 218)), vr, radius=10)
-        pygame.draw.rect(screen, OUTLINE, vr, 1, border_radius=10)
-        draw_text(screen, lab, small_font, WHITE if view == key else INK, vr.centerx, vr.centery, centre=True)
-        buttons["view_" + key] = vr
+    import station
+    st = station.station(state)
+    if st == "royal" or (st == "noble" and career.get("view") == "duties"):
+        return station.draw_duties(screen, rect, mouse_pos, state, career)
+    import idol
+    if career.get("view") == "paths":
+        import pathways
+        b = _view_toggles(screen, rect, mouse_pos, career, st)
+        b.update(pathways.draw_panel(screen, pygame.Rect(rect.x, rect.y + 30, rect.width, rect.height - 30), mouse_pos, state, career))
+        return b
+    if career.get("view") == "idol":
+        b = _view_toggles(screen, rect, mouse_pos, career, st)
+        b.update(idol.draw_panel(screen, pygame.Rect(rect.x, rect.y + 30, rect.width, rect.height - 30), mouse_pos, state))
+        return b
+    buttons = _view_toggles(screen, rect, mouse_pos, career, st)
+    view = career["view"]
     if view == "fame":
         fj = active_fame_job(career)
         fame = career.get("fame", 0)
         draw_text(screen, f"Fame: {fame}  ({fame_tier(fame)})", font, INK, rect.x, rect.y)
-        fbar = pygame.Rect(rect.x + 250, rect.y + 6, 220, 14)
+        fbar = pygame.Rect(rect.x + 240, rect.y + 6, 80, 14)
         draw_rounded_rect(screen, LIGHT_GREY, fbar, radius=7)
         draw_rounded_rect(screen, (236, 130, 178), (fbar.x, fbar.y, int(fbar.w * fame / 100), fbar.h), radius=7)
+        import celebrity, idol
+        if celebrity.note(state):
+            draw_text(screen, celebrity.note(state), small_font, (176, 90, 140), rect.x, rect.y + 214)
+        if idol.active(state):
+            draw_text(screen, "Being an idol counts as a fame career: your fame fades slowly and drives your album sales.",
+                      small_font, MUTED, rect.x, rect.y + 236)
         if fj is None:
             draw_text(screen, "Start a side career. You can do it alongside school or a full-time job.", small_font, MUTED, rect.x, rect.y + 32)
             hs = eligible_hustles(career, state)
@@ -505,7 +537,24 @@ def handle_career_click(mx, my, buttons, career, state):
                 return
         return
 
-    for key in ("work", "fame"):
+    if buttons.get("_station"):
+        import station
+        station.handle_duties_click(mx, my, buttons, state, career, lambda t: _log(state, t))
+        return
+    if buttons.get("_paths"):
+        for key in ("duties", "work", "fame", "idol", "paths"):
+            if "view_" + key in buttons and buttons["view_" + key].collidepoint(mx, my):
+                career["view"] = key
+        return
+    if buttons.get("_idol"):
+        for key in ("duties", "work", "fame", "idol", "paths"):
+            if "view_" + key in buttons and buttons["view_" + key].collidepoint(mx, my):
+                career["view"] = key
+                return
+        import idol
+        idol.handle_click(mx, my, buttons, state, lambda t: _log(state, t))
+        return
+    for key in ("duties", "work", "fame", "idol", "paths"):
         if "view_" + key in buttons and buttons["view_" + key].collidepoint(mx, my):
             career["view"] = key
             return
@@ -624,7 +673,7 @@ def advance_career_year(career, state, age):
             cv_save(state, job)
             log(f"You were let go from your job as {job['title']}.")
             career["job"] = None
-    elif age < 18:
+    elif 5 <= age < 18:
         base, gift = state.get("_pocket", (150, 0))
         state["money"] += base + gift   # pocket money from the parents' pay
         if base or gift:
@@ -637,7 +686,8 @@ def advance_career_year(career, state, age):
             stats["mental"] = max(0, stats["mental"] - 1)    # it takes up your spare time
     old_tier = fame_tier(career.get("fame", 0))
     if career.get("fame", 0) > 0:
-        in_fame_job = bool((career["job"] and career["job"].get("fame")) or hustle)
+        import idol
+        in_fame_job = bool((career["job"] and career["job"].get("fame")) or hustle or idol.active(state))
         career["fame"] = max(0, career["fame"] - (3 if in_fame_job else 8))
         new_tier = fame_tier(career["fame"])
         if new_tier != old_tier:

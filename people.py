@@ -31,9 +31,11 @@ def group_of(p):
         return "romance"
     return {"family": "family", "friend": "friends", "classmate": "classmates", "enemy": "rivals"}.get(cat, "friends")
 
-def group_members(group, people, friends, partner, classmates):
+def group_members(group, people, friends, partner, classmates, deceased=()):
     pool = ([partner] if partner else []) + list(people) + list(friends) + list(classmates)
     out = [x for x in pool if group_of(x) == group]
+    if group == "family":
+        out += list(deceased)          # remembered at the bottom of the list
     if group == "romance":
         out.sort(key=lambda x: 0 if x["category"] == "partner" else 1)
     return out
@@ -75,7 +77,7 @@ GIFT_COST = 15
 PARTNER_MIN_AGE = 13
 MARRY_MIN_AGE = 18
 PROPOSAL_COST = 500      # the cheapest ring; see romance.RINGS
-MAX_CHILDREN = 4
+MAX_CHILDREN = 6
 CHILD_COST = 3000
 
 CLASHES = {("hot-tempered", "hot-tempered"): -20, ("jealous", "jealous"): -10, ("jealous", "outgoing"): -12,
@@ -129,8 +131,8 @@ INTERACTIONS = {
 def random_name(gender):
     return random.choice(NAME_POOL_MALE if gender == "Male" else NAME_POOL_FEMALE)
 
-FEMALE_HAIR = ["Long", "Long", "Long", "Ponytail", "Curly"]
-MALE_HAIR = ["Short", "Short", "Buzzcut", "Spiky", "Curly", "Bald", "Mohawk"]
+FEMALE_HAIR = ["Long", "Long", "Wavy", "Bangs", "Shoulder", "Ponytail", "Bun", "Bob", "Curly", "Afro", "Braids", "Pixie", "SideSwept", "SpaceBuns"]
+MALE_HAIR = ["Short", "Short", "SidePart", "Quiff", "Messy", "Fade", "Buzzcut", "Curly", "Afro", "Undercut", "ManBun", "Long", "Dreads"]
 HAIR_COLOURS = [(35, 28, 24), (60, 40, 30), (110, 70, 35), (190, 140, 60), (150, 50, 30), (20, 20, 20), (90, 60, 45)]
 JOB_TITLES = ["nurse", "teacher", "electrician", "accountant", "chef", "designer", "mechanic", "shop manager",
               "engineer", "journalist", "paramedic", "postal worker", "librarian", "builder", "dentist", "driver"]
@@ -153,16 +155,18 @@ def random_look(gender, age=30, skin=None, hair=None):
     if age >= 50 and gender == "Male":
         pool = ["Short", "Short", "Buzzcut", "Bald"]
     elif age >= 40:
-        pool = [h for h in pool if h not in ("Mohawk", "Spiky")]
+        pool = [h for h in pool if h not in ("Undercut", "Fade", "SpaceBuns", "Messy", "Dreads", "Mohawk")]
     style = random.choice(pool)
     facial = "None"
     if gender == "Male" and age >= 20:
-        facial = random.choice(["None", "None", "Stubble", "Beard", "Moustache"])
+        facial = random.choice(["None", "None", "Stubble", "Beard", "Moustache", "Goatee", "FullBeard"])
     feat = {"eyes": random.choices(["Brown", "Dark", "Blue", "Green", "Hazel", "Grey", "Amber"], [30, 14, 14, 8, 10, 4, 4])[0],
-            "eye_shape": random.choice(["Almond", "Almond", "Round", "Wide", "Narrow", "Sleepy"]),
-            "brows": random.choice(["Natural", "Natural", "Thick", "Thin", "Arched", "Straight"]),
-            "lips": random.choice(["Natural", "Natural", "Full", "Thin"]),
-            "outfit": random.randint(0, 7)}
+            "outfit": random.randint(0, 9),
+            "top": random.choice(["Tee", "Hoodie", "Shirt", "Sweater", "Jacket"] + (["Blazer", "Turtleneck"] if age >= 25 else [])
+                                 + (["Dress", "Tank"] if gender == "Female" else ["Tank"])),
+            "glasses": random.choice(["None"] * (8 if age < 45 else 3) + ["Round", "Square"]),
+            "earrings": random.choice(["None", "Studs", "Hoops"]) if gender == "Female" else "None",
+            "hat": random.choice(["None"] * 14 + ["Cap", "Beanie"])}
     return {"hair": list(hair or random.choice(HAIR_COLOURS)), "style": style,
             "skin": list(skin or random.choice(SKIN_TONES)), "facial": facial, "feat": feat}
 
@@ -271,7 +275,7 @@ def ensure_profiles(everyone, player_age):
         if p["age"] >= 18 and p.get("job_title") not in worldjobs.BY_TITLE and not p.get("fin"):
             worldjobs.assign_job(p)
 
-def generate_family(skin=None, hair=None, player_stats=None):
+def generate_family(skin=None, hair=None, player_stats=None, scenario=None):
     """A starting cast of relatives with ages and a family resemblance:
     parents, grandparents on both sides, and a random number of siblings."""
     def kin(rel, g, close, age):
@@ -302,7 +306,34 @@ def generate_family(skin=None, hair=None, player_stats=None):
             worldjobs.assign_job(par, worldjobs.BY_TITLE[random.choice(["Cleaner", "Shop Assistant", "Waiter", "Security Guard", "Taxi Driver", "Cashier" if False else "Shop Assistant"])])
     for _ in range(random.randint(0, 3)):
         sib_type = random.choices(["Sibling", "Half-Sibling", "Step-Sibling"], weights=[70, 20, 10])[0]
-        family.append(kin(sib_type, random.choice(["Male", "Female"]), 60, random.randint(1, 9)))
+        sib = kin(sib_type, random.choice(["Male", "Female"]), 60, random.randint(1, 9))
+        family.append(sib)
+        if sib_type != "Sibling":
+            # keep the other side of the family: their own mum or dad is in the tree too
+            shared = random.choice(["Mother", "Father"])
+            og = "Male" if shared == "Mother" else "Female"
+            other = kin("Mum of " + sib["name"] if og == "Female" else "Dad of " + sib["name"], og, 40, sib["age"] + random.randint(22, 36))
+            other["is_other_parent"] = True
+            other["for_sibling"] = sib["name"]
+            sib["shared_parent"] = shared
+            sib["other_parent"] = other["name"]
+            family.append(other)
+    # aunts and uncles: the parents' brothers and sisters
+    for side, par_age in (("Paternal", dad), ("Maternal", mum)):
+        for _ in range(random.choices([0, 1, 2], weights=[35, 45, 20])[0]):
+            g = random.choice(["Male", "Female"])
+            a = kin(("Uncle" if g == "Male" else "Aunt"), g, 45, max(20, par_age + random.randint(-7, 7)))
+            a["side"] = side
+            family.append(a)
+            if random.random() < 0.6:
+                sg = "Female" if g == "Male" else "Male"
+                sp = kin("Aunt by marriage" if sg == "Female" else "Uncle by marriage", sg, 45, max(20, a["age"] + random.randint(-5, 5)))
+                sp["is_inlaw"] = True
+                sp["inlaw_of"] = a["name"]
+                sp["side"] = side
+                family.append(sp)
+    if scenario and scenario.get("family"):
+        scenario["family"](family, make_person)
     return family
 
 def trait_modifier(person, action):
@@ -450,10 +481,10 @@ def all_people(people, friends, partner):
     combined.extend(friends)
     return combined
 
-def get_people_layout(rect, people, friends, partner, scroll_offset, classmates=(), group="friends"):
+def get_people_layout(rect, people, friends, partner, scroll_offset, classmates=(), group="friends", deceased=()):
     """Shared layout math for the People tab — used by both the drawing
     code and the click handler so they can never fall out of sync."""
-    combined = group_members(group, people, friends, partner, classmates)
+    combined = group_members(group, people, friends, partner, classmates, deceased)
     row_h = 58
     visible_count = max(rect.height // row_h, 1)
     scroll_offset = max(0, min(scroll_offset, max(len(combined) - visible_count, 0)))
@@ -467,7 +498,7 @@ def get_people_layout(rect, people, friends, partner, scroll_offset, classmates=
         gap = 5
         start_x = row_rect.right - (button_w * 4 + gap * 3)
         buttons = {}
-        for i, action in enumerate(("Talk", "Hang Out", "Argue", "Gift")):
+        for i, action in enumerate(() if person.get("dead") else ("Talk", "Hang Out", "Argue", "Gift")):
             bx = start_x + i * (button_w + gap)
             buttons[action] = pygame.Rect(bx, row_rect.y + row_rect.height // 2 - 12, button_w, 24)
         rows.append((person, row_rect, buttons))
@@ -493,7 +524,7 @@ def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
     tabs = group_tab_rects(rect)
     for key, label in GROUPS:
         r = tabs[key]
-        n = len(group_members(key, people, friends, partner, classmates))
+        n = len(group_members(key, people, friends, partner, classmates))     # the living only
         on = key == group
         draw_rounded_rect(screen, ACCENT if on else (WHITE if not r.collidepoint(mouse_pos) else (235, 235, 240)), r, radius=8)
         pygame.draw.rect(screen, OUTLINE, r, 2, border_radius=8)
@@ -529,13 +560,14 @@ def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
                       or actions_used.get("__propose__", 0) >= 1 or state["money"] < PROPOSAL_COST)
         else:
             small_btn(meet_rect, "Married", True)
-        if partner is not None and age < 46 and len(children_of(people)) < MAX_CHILDREN:
+        if partner is not None and len(children_of(people)) < MAX_CHILDREN:
             same = partner.get("gender") == state.get("gender")
             small_btn(partner_rect, "Adopt a child" if same else "Try for a baby",
                       age < MARRY_MIN_AGE or no_budget or actions_used.get("__baby__", 0) >= 1 or partner.get("status") == "situationship")
 
     list_rect = pygame.Rect(rect.x, rect.y + 66, rect.width, rect.height - 66)
-    rows, combined, scroll_offset = get_people_layout(list_rect, people, friends, partner, scroll_offset, classmates, group)
+    rows, combined, scroll_offset = get_people_layout(list_rect, people, friends, partner, scroll_offset, classmates, group,
+                                                      state.get("deceased", []))
 
     if not combined:
         empty = {"romance": "No partner or exes right now.", "family": "No family listed.", "friends": "No friends yet. Meet someone new!",
@@ -543,6 +575,9 @@ def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
         draw_text(screen, empty, small_font, DARK_GREY, list_rect.centerx, list_rect.centery, centre=True)
 
     for person, row_rect, buttons in rows:
+        if person.get("dead"):
+            draw_memorial_row(screen, row_rect, person)
+            continue
         draw_rounded_rect(screen, WHITE, row_rect, radius=8)
         pygame.draw.rect(screen, OUTLINE, row_rect, 1, border_radius=8)
 
@@ -590,6 +625,30 @@ def draw_people_tab(screen, rect, people, friends, partner, scroll_offset,
 
     return scroll_offset
 
+def draw_memorial_row(screen, row_rect, person):
+    """A greyed row for a relative who has died."""
+    draw_rounded_rect(screen, (244, 243, 246), row_rect, radius=8)
+    pygame.draw.rect(screen, OUTLINE, row_rect, 1, border_radius=8)
+    thumb = pygame.Rect(row_rect.x + 4, row_rect.y + 3, 44, 44)
+    draw_rounded_rect(screen, (232, 230, 236), thumb, radius=8)
+    draw_person_avatar(screen, thumb, person)
+    veil = pygame.Surface(thumb.size, pygame.SRCALPHA)
+    veil.fill((244, 243, 246, 120))
+    screen.blit(veil, thumb.topleft)
+    draw_text(screen, person["name"], small_font, DARK_GREY, row_rect.x + 54, row_rect.y + 6)
+    draw_text(screen, "In memory", small_font, MUTED, row_rect.x + 62 + small_font.size(person["name"])[0], row_rect.y + 6)
+    when = f", when you were {person['died_when']}" if person.get("died_when") is not None else ""
+    draw_text(screen, f"{person['relation']}, died aged {person.get('died_age', '?')}{when}", small_font, MUTED, row_rect.x + 54, row_rect.y + 26)
+    job = person.get("job_title")
+    if job:
+        draw_text(screen, job, small_font, MUTED, row_rect.right - 12 - small_font.size(job)[0], row_rect.y + 16)
+
+def remember_dead(state, p, relation=None):
+    rec = dict(p)
+    rec.update(dead=True, died_age=p.get("age"), died_when=state.get("age"), category="family",
+               relation=relation or p["relation"])
+    state.setdefault("deceased", []).append(rec)
+
 def handle_people_click(mx, my, rect, people, friends, partner, scroll_offset, state, age):
     """Returns ("tab", name), ("profile", person), ("ask", target), or
     "meet" / "classmate" / "partner" / "propose" / "baby" when an action
@@ -607,8 +666,11 @@ def handle_people_click(mx, my, rect, people, friends, partner, scroll_offset, s
 
     # clicking a row (outside its buttons) opens that person's profile
     list_rect = pygame.Rect(rect.x, rect.y + 66, rect.width, rect.height - 66)
-    rows, combined, _s = get_people_layout(list_rect, people, friends, partner, scroll_offset, classmates, group)
+    rows, combined, _s = get_people_layout(list_rect, people, friends, partner, scroll_offset, classmates, group,
+                                           state.get("deceased", []))
     for person, row_rect, buttons in rows:
+        if person.get("dead"):
+            continue
         if row_rect.collidepoint(mx, my) and not any(b.collidepoint(mx, my) for b in buttons.values()):
             return ("profile", person)
 
@@ -638,7 +700,7 @@ def handle_people_click(mx, my, rect, people, friends, partner, scroll_offset, s
                 actions_used["__propose__"] = 1
                 state["actions_remaining"] -= 1
                 return "propose"
-            if (partner is not None and partner.get("status") != "situationship" and age >= MARRY_MIN_AGE and age < 46
+            if (partner is not None and partner.get("status") != "situationship" and age >= MARRY_MIN_AGE
                     and second_rect.collidepoint(mx, my)
                     and actions_used.get("__baby__", 0) < 1 and len(children_of(people)) < MAX_CHILDREN):
                 actions_used["__baby__"] = 1
@@ -678,9 +740,10 @@ def advance_deaths(people, friends, partner, state, log):
             else:
                 state["home"] = {"name": f"{p['name']}'s house", "value": value}
                 log(f"You inherited {p['name']}'s house (worth about ${fmt(value)}). You no longer pay rent.")
-        if random.random() < 0.3 and "heirloom" not in state["owned"]:
-            state["owned"].add("heirloom")
-            log(f"You inherited a keepsake from {p['name']}.")
+        if random.random() < 0.45:
+            import family as _fam
+            h = _fam.add_heirloom(state, p["name"], mult)
+            log(f"You inherited {p['name']}'s {h['name'].lower()} (worth ${fmt(h['value'])}).")
     def grieve(p):
         stats["mental"] = max(0, stats["mental"] - (5 if p["closeness"] >= 55 else 2))
     for p in list(people):
@@ -690,6 +753,8 @@ def advance_deaths(people, friends, partner, state, log):
             people.remove(p)
             log(f"Your {p['relation'].lower()}, {p['name']}, passed away at {p['age']}.")
             grieve(p)
+            if p["category"] == "family":
+                remember_dead(state, p)
             if p["category"] == "family" and not (p.get("is_child") or p.get("is_grand")):
                 if p["relation"] in ("Mother", "Father"):
                     inherit(p, 60, 220, 0.4)
@@ -707,6 +772,7 @@ def advance_deaths(people, friends, partner, state, log):
         grieve(partner)
         stats["mental"] = max(0, stats["mental"] - 4)
         if partner.get("married"):
+            remember_dead(state, partner, "Spouse")
             inherit(partner, 80, 260, 0.35)
             if not partner.get("merged"):
                 own = finances(partner)["savings"]

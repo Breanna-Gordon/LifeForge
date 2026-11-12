@@ -143,6 +143,8 @@ ITEMS = {
         I("boarding", "Boarding school", "Ask for a boarding school", 11, 17, special="private_school", school="boarding"),
         I("artsac", "Arts academy", "Ask for a performing arts academy", 8, 17, special="private_school", school="arts"),
         I("sportsac", "Sports academy", "Ask for a sports academy", 8, 17, special="private_school", school="sports"),
+        I("schexam", "Scholarship exam", "Sit an academic scholarship exam (prep or boarding)", 8, 16, special="scholarship", track="academic"),
+        I("schaudition", "Talent scholarship", "Audition for an arts or sports academy scholarship", 8, 16, special="scholarship", track="talent"),
     ],
     "pets": [
         I("adopt", "Adopt a pet", "Give a pet a home", 6, cost=300, special="adopt",
@@ -272,7 +274,7 @@ def item_label(item, state, age):
 
 # ---- drawing ------------------------------------------------------------------
 def view_rects(rect):
-    labels = [("clubs", "Clubs", 66), ("outings", "Outings", 80), ("sports", "Sports", 72), ("life", "Lifestyle", 0)]
+    labels = [("clubs", "Clubs", 66), ("outings", "Outings", 80), ("sports", "Sports", 72), ("skills", "Skills", 66), ("life", "Lifestyle", 0)]
     out, x = {}, rect.right
     for key, _, w in reversed(labels):
         x -= w
@@ -573,6 +575,62 @@ SCHOOLS = {"prep": ("Elite prep school", "IB Diploma", {"academic": 3}, {"academ
            "arts": ("Arts academy", "Performing Arts Diploma", {"looks": 2, "social": 2}, {"social": 1, "looks": 1}, 3),
            "sports": ("Sports academy", "Sports Excellence Diploma", {"athletic": 4}, {"athletic": 1, "physical": 1}, 3)}
 
+# what each school judges you on, and the scores for a full / half scholarship
+SCHOLAR_STATS = {"prep": ("academic",), "boarding": ("academic",), "arts": ("social", "looks"), "sports": ("athletic",)}
+SCHOLAR_FULL, SCHOLAR_HALF = 78, 64
+SCHOLAR_KEEP = {"Full": 68, "Half": 56}
+
+def _a(noun):
+    return ("an " if noun[0] in "AEIOU" else "a ") + noun
+
+def _scholar_score(state, kind):
+    s = state["stats"]
+    keys = SCHOLAR_STATS[kind]
+    return sum(s[k] for k in keys) / len(keys)
+
+def _family_pays(state):
+    """Whether your parents can and will cover fees."""
+    if not state.get("parents_ok"):
+        return False
+    return state.get("family_wealth", "Comfortable") not in ("Struggling",) and random.random() < worldjobs.tier_value(
+        state, {"Struggling": 0.05, "Comfortable": 0.5, "Wealthy": 0.95})
+
+def _sp_scholarship(it, state, age, career, friends, make_friend, log, dim, paid):
+    if state.get("private_school") and state.get("school_scholarship"):
+        log("You already hold a scholarship.")
+        return
+    if state.get("_sch_year") == age:
+        log("Scholarship exams only run once a year. Try again next year.")
+        return
+    state["_sch_year"] = age
+    if it.get("track") == "academic":
+        kind = "boarding" if age >= 11 and state["stats"]["social"] >= state["stats"]["academic"] - 10 and random.random() < 0.5 else "prep"
+    else:
+        kind = "arts" if _scholar_score(state, "arts") >= _scholar_score(state, "sports") else "sports"
+    name = SCHOOLS[kind][0]
+    score = _scholar_score(state, kind) + random.randint(-6, 6)       # nerves and luck on the day
+    if score >= SCHOLAR_FULL:
+        award = "Full"
+    elif score >= SCHOLAR_HALF:
+        award = "Half"
+    else:
+        need = "Academic" if kind in ("prep", "boarding") else ("Social and Looks" if kind == "arts" else "Athletic")
+        log(f"You didn't win a place at the {name.lower()}. Raise your {need} and try again next year.")
+        return
+    if award == "Half" and not _family_pays(state):
+        log(f"The {name.lower()} offered you a half scholarship, but your family can't cover the rest.")
+        return
+    if state.get("private_school"):
+        log(f"You won a {award.lower()} scholarship. Your family is relieved about the fees.")
+        state["school_scholarship"] = award
+        return
+    state["private_school"] = kind
+    state["school_scholarship"] = award
+    for k, v in SCHOOLS[kind][2].items():
+        state["stats"][k] = min(100, state["stats"][k] + v)
+    state["stats"]["mental"] = min(100, state["stats"]["mental"] + 3)
+    log(f"You won a {award.lower()} scholarship to the {name.lower()}!")
+
 def _sp_private_school(it, state, age, career, friends, make_friend, log, dim, paid):
     chance = worldjobs.tier_value(state, {"Struggling": 0.05, "Comfortable": 0.25, "Wealthy": 0.6})
     kind = it.get("school", "prep")
@@ -585,7 +643,7 @@ def _sp_private_school(it, state, age, career, friends, make_friend, log, dim, p
             state["stats"][k] = min(100, state["stats"][k] + v)
         log(f"Your parents agreed. You joined the {name.lower()}!")
     else:
-        log("Your parents said that school isn't an option.")
+        log("Your parents said they can't afford that school. A scholarship could get you in.")
 
 def _sp_adopt(it, state, age, career, friends, make_friend, log, dim, paid):
     kind, life = random.choice(PET_KINDS)
@@ -661,11 +719,34 @@ def advance_lifestyle_year(state, career, age, log):
     import business as _biz
     _biz.business_year(state, age, career, log)
     ps = state.get("private_school")
+    sch = state.get("school_scholarship")
+    if ps and age < 18 and sch:
+        kind = ps if isinstance(ps, str) and ps in SCHOOLS else "prep"
+        if _scholar_score(state, kind) < SCHOLAR_KEEP[sch]:
+            if not state.get("sch_warned"):
+                state["sch_warned"] = True
+                log("The school warned you: keep your results up or you'll lose your scholarship.")
+            else:
+                state["school_scholarship"] = None
+                state["sch_warned"] = False
+                if _family_pays(state):
+                    log("You lost your scholarship. Your family is paying the fees now.")
+                else:
+                    state["private_school"] = None
+                    s["mental"] = max(0, s["mental"] - 4)
+                    log("You lost your scholarship and had to leave for a state school.")
+                    ps = None
+        else:
+            state["sch_warned"] = False
     if ps and age < 18:
         kind = ps if isinstance(ps, str) and ps in SCHOOLS else "prep"
         for k, v in SCHOOLS[kind][3].items():
             s[k] = min(100, s[k] + v)
         if age == 17:
-            career["prestige"] = career.get("prestige", 0) + SCHOOLS[kind][4]
+            career["prestige"] = career.get("prestige", 0) + SCHOOLS[kind][4] + (1 if state.get("school_scholarship") else 0)
             state["school_diploma"] = SCHOOLS[kind][1]
-            log(f"You graduated with a {SCHOOLS[kind][1]}. Universities notice.")
+            if state.get("school_scholarship"):
+                state["school_scholar"] = True
+                log(f"You graduated with {_a(SCHOOLS[kind][1])} as a scholarship student. Universities notice.")
+            else:
+                log(f"You graduated with {_a(SCHOOLS[kind][1])}. Universities notice.")

@@ -72,6 +72,7 @@ async def character_selection_screen(screen):
     male_rect = pygame.Rect(70, 505, 130, 32)
     female_rect = pygame.Rect(220, 505, 130, 32)
     continue_rect = pygame.Rect(SCREEN_WIDTH // 2 - 130, 640, 260, 44)
+    rand_rect = pygame.Rect(70, 606, 280, 26)
     editor_rect = pygame.Rect(420, 100, 440, 480)
     picked = {"gender": False}
 
@@ -101,6 +102,7 @@ async def character_selection_screen(screen):
             if on:
                 draw_rounded_rect(screen, ACCENT, r, radius=8)
             draw_text(screen, label, small_font, INK if on or r.collidepoint(mouse_pos) else MUTED, r.centerx, r.centery, centre=True)
+        draw_text(screen, "Randomise everything", small_font, ACCENT if rand_rect.collidepoint(mouse_pos) else MUTED, rand_rect.centerx, rand_rect.centery, centre=True)
         hits = appearance.draw_editor(screen, editor_rect, mouse_pos, look, gender, ed)
         enabled = bool(name.strip())
         draw_rounded_rect(screen, (ACCENT if continue_rect.collidepoint(mouse_pos) else GREEN) if enabled else LIGHT_GREY, continue_rect, radius=12)
@@ -136,6 +138,13 @@ async def character_selection_screen(screen):
                 for i in range(3):
                     if pygame.Rect(70 + i * 96, 572, 90, 26).collidepoint(mx, my):
                         orient_index = i
+                if rand_rect.collidepoint(mx, my):
+                    import random as _rnd
+                    from people import NAME_POOL_MALE, NAME_POOL_FEMALE
+                    gender = _rnd.choice(["Male", "Female"])
+                    look = appearance.randomise(gender)
+                    name = _rnd.choice(NAME_POOL_MALE if gender == "Male" else NAME_POOL_FEMALE)
+                    orient_index = _rnd.choice([0, 1, 2, 2])
                 appearance.click_editor(mx, my, hits, look, gender, ed)
                 if continue_rect.collidepoint(mx, my) and name.strip():
                     return current_selection()

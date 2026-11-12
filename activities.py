@@ -5,10 +5,11 @@ import random
 import pygame
 from constants import OUTLINE, INK, MUTED, draw_card, draw_pill, draw_shadow
 import lifestyle
+import skills as SK
 from constants import (WHITE, BLACK, LIGHT_GREY, DARK_GREY, ACCENT, GREEN, RED,
                        font, small_font, draw_text, draw_rounded_rect)
 
-MAX_ACTIVITIES = 3
+MAX_ACTIVITIES = 99      # no slot limits for now
 
 # kind: "club", "society" or "sport". Sports have tryouts (athletic >= join
 # is a safe pass; below it you can still get lucky) and a keep level: if
@@ -78,7 +79,7 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
         view = state["act_view"] = "life"
     elif view == "life":
         view = state["act_view"] = "clubs"
-    for key, label in (() if only_life else (("clubs", "Clubs"), ("outings", "Outings"), ("sports", "Sports"))):
+    for key, label in (() if only_life else (("clubs", "Clubs"), ("outings", "Outings"), ("sports", "Sports"), ("skills", "Skills"))):
         vr = views[key]
         on = view == key
         draw_rounded_rect(screen, ACCENT if on else (WHITE if not vr.collidepoint(mouse_pos) else (235, 235, 240)), vr, radius=8)
@@ -86,6 +87,10 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
         draw_text(screen, label, small_font, INK, vr.centerx, vr.centery, centre=True)
     if view == "life":
         res = lifestyle.draw_lifestyle(screen, rect, mouse_pos, state, age, career or {})
+        res["views"] = views
+        return res
+    if view == "skills":
+        res = SK.draw_skills(screen, rect, mouse_pos, state, age)
         res["views"] = views
         return res
     if view == "sports":
@@ -123,7 +128,7 @@ def draw_activities_tab(screen, rect, mouse_pos, state, age, career=None):
             outs.append((o, r))
         return {"acts": [], "views": views, "outs": outs}
     items = available(age)
-    draw_text(screen, f"Clubs ({len(mine)}/{MAX_ACTIVITIES})", font, INK, rect.x, rect.y)
+    draw_text(screen, "Clubs", font, INK, rect.x, rect.y)
     for n, a in enumerate(items):
         col, row = n % cols, n // cols
         r = pygame.Rect(rect.x + col * (col_w + 12), rect.y + 28 + row * (row_h + 3), col_w, row_h)
@@ -159,6 +164,9 @@ def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, l
         if vr.collidepoint(mx, my):
             state["act_view"] = key
             return
+    if state.get("act_view") == "skills":
+        SK.handle_click(mx, my, buttons, state, age, log)
+        return
     if state.get("act_view") == "sports":
         sports.handle_sports_click(mx, my, buttons, state, age, career or {}, log)
         return
@@ -243,7 +251,7 @@ def handle_activities_click(mx, my, buttons, state, age, friends, make_friend, l
             log(f"Didn't make the {a['name']} after tryouts.")
         return
 
-def advance_activities_year(state, log):
+def advance_activities_year(state, log, career=None):
     """Called at year end: apply each membership's boosts and cut sports
     players whose Athletic has fallen too low."""
     stats = state["stats"]
@@ -256,10 +264,7 @@ def advance_activities_year(state, log):
         state["activities"][aid] += 1
         for k, v in a["fx"].items():
             stats[k] = max(0, min(100, stats[k] + v))
+    SK.year(state, log, career)
     for sk, lvl in state.get("skills", {}).items():
         if lvl >= 3:     # a developed skill keeps lifting your spirits
             stats["mental"] = min(100, stats["mental"] + 1)
-    # a sports scholarship offer for strong players about to leave school
-    if on_team(state) and stats["athletic"] >= 80 and 16 <= state["age"] <= 22 and not state.get("scholarship"):
-        state["scholarship"] = True
-        log("Offered a sports scholarship!")

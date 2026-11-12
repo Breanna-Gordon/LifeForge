@@ -40,7 +40,26 @@ def level_of(state, career):
 
 def draft_score(state, career):
     s = state["stats"]
-    return s["athletic"] * 0.65 + s["physical"] * 0.15 + career.get("fame", 0) * 0.2 + state.get("sport_perf", 50) * 0.2 + random.randint(-10, 10)
+    import pathways
+    return (s["athletic"] * 0.6 + s["physical"] * 0.1 + career.get("fame", 0) * 0.1 + state.get("sport_perf", 50) * 0.15
+            + pathways.draft_bonus(state) + random.randint(-8, 8))
+
+def run_draft(state, career, sid, log, bonus=0):
+    """Go through the draft. True if a team picked you."""
+    sc = draft_score(state, career) + bonus
+    if sc >= 88:
+        tier, rnd = 1, "first-round pick"
+    elif sc >= 78:
+        tier, rnd = 2, "second-round pick"
+    elif sc >= 68:
+        tier, rnd = 3, "late pick"
+    else:
+        log("Nobody picked you in the draft this year.")
+        return False
+    team = random.choice([n for n, t in TEAMS[sid] if t == tier])
+    log(f"Drafted as a {rnd} by {team}!")
+    sign_pro(state, career, sid, team, tier, log)
+    return True
 
 def _contract(tier, state):
     base = TIER_PAY[tier]
@@ -80,8 +99,8 @@ def _options(state, age, career):
         return out
     out.append(("train", "Extra training", "Athletic +, performance +", left))
     if age >= 20:
-        ok = left and state["stats"]["athletic"] >= 60
-        out.append(("draft", "Enter the draft", "Needs Athletic 60+. Teams pick the best", ok))
+        ok = left and state["stats"]["athletic"] >= 60 and age <= 26
+        out.append(("draft", "Enter the draft", "Ages 20-26, Athletic 60+" if age <= 26 else "Too old for the draft now", ok))
         out.append(("trial", "Pro trial", "Try out for a lower-league team", left and state["stats"]["athletic"] >= 50))
     else:
         out.append(("scout", "Attend a scouting camp", "Scouts notice you (fame)", left and age >= 15))
@@ -106,7 +125,7 @@ def draw_sports(screen, rect, mouse_pos, state, age, career):
     draw_text(screen, "Form", small_font, MUTED, bar.right + 8, bar.y - 4)
     hint = {"pro": "Good form means pay rises and fame. Injuries and age end careers.",
             "college": "Strong college players get drafted at 20+. Form matters.",
-            "school": "Join a team in Clubs, train, and the scouts will come.",
+            "school": "Train and keep your form up: college scouts watch ages 13-19 (see Career > Paths).",
             None: "Teams are in the Clubs view."}[lvl]
     draw_text(screen, hint, small_font, MUTED, rect.x, rect.y + 70)
     if sid:
@@ -130,6 +149,8 @@ def handle_sports_click(mx, my, buttons, state, age, career, log):
         sid = state["pro"]["sport"] if state.get("pro") else my_sport(state)
         if key == "retire":
             log(f"You retired from {SPORT_IDS[sid]}.")
+            import pathways
+            pathways.on_retire(state, age)
             if career.get("job") and career["job"].get("base") == "Professional Athlete":
                 career["job"] = None
             state["pro"] = None
@@ -137,7 +158,8 @@ def handle_sports_click(mx, my, buttons, state, age, career, log):
         state["actions_remaining"] -= 1
         perf = state.get("sport_perf", 50)
         if key == "train":
-            stats["athletic"] = min(100, stats["athletic"] + random.randint(1, 3))
+            a = stats["athletic"]       # the fitter you are, the harder each point comes
+            stats["athletic"] = min(100, a + (random.randint(1, 3) if a < 70 else random.randint(0, 2) if a < 85 else random.randint(0, 1)))
             stats["physical"] = max(0, stats["physical"] - 1)
             state["sport_perf"] = min(100, perf + random.randint(2, 6))
             log("A tough training block. You feel sharper.")
@@ -150,20 +172,7 @@ def handle_sports_click(mx, my, buttons, state, age, career, log):
             state["sport_perf"] = min(100, perf + 3)
             log("Scouts watched you at camp.")
         elif key == "draft":
-            sc = draft_score(state, career)
-            teams = TEAMS[sid]
-            if sc >= 84:
-                tier, rnd = 1, "first-round pick"
-            elif sc >= 72:
-                tier, rnd = 2, "second-round pick"
-            elif sc >= 60:
-                tier, rnd = 3, "late pick"
-            else:
-                log("Nobody picked you in the draft this year.")
-                return
-            team = random.choice([n for n, t in teams if t == tier])
-            log(f"Drafted as a {rnd} by {team}!")
-            sign_pro(state, career, sid, team, tier, log)
+            run_draft(state, career, sid, log)
         elif key == "trial":
             tier = 4 if state["stats"]["athletic"] < 70 else 3
             if random.random() < 0.35 + (stats["athletic"] - 50) / 100:
@@ -172,7 +181,9 @@ def handle_sports_click(mx, my, buttons, state, age, career, log):
             else:
                 log("The pro trial didn't lead to a contract.")
         elif key == "trade":
-            pro = state["pro"]
+            pro = state.get("pro")
+            if not pro:
+                return
             better = [(n, t) for n, t in TEAMS[pro["sport"]] if t < pro["tier"]]
             pool = better if (better and state.get("sport_perf", 50) >= 65 and random.random() < 0.6) else [(n, t) for n, t in TEAMS[pro["sport"]] if n != pro["team"]]
             n, t = random.choice(pool)
@@ -208,6 +219,8 @@ def sports_year(state, career, log):
             log("A serious injury cost you months of the season.")
         if state["age"] >= 34 and random.random() < 0.25 + (state["age"] - 34) * 0.1:
             log(f"You retired from {SPORT_IDS[pro['sport']]} after {pro['years']} seasons.")
+            import pathways
+            pathways.on_retire(state, state["age"])
             career["job"] = None
             state["pro"] = None
     else:

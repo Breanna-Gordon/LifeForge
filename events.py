@@ -225,6 +225,14 @@ def pick_year_events(age, ctx, normal_pool, wildcard_pool, last_text, extra_chan
         cands = f or cands
     fresh = [c for c in cands if c[0] not in recent]
     events = [random.choice(fresh or cands)]
+    try:
+        import lifeevents
+        ms = lifeevents.age_event(age, ctx)
+    except Exception:
+        ms = None
+    if ms and random.random() < 0.9:
+        events = [(ms["text"], ms["options"])] + ([] if random.random() < 0.5 else events[:1])
+        return events[:2]
     rel = [r for r in relationship_events(ctx) if r[0] not in recent]
     if rel and random.random() < 0.5:
         events.append(random.choice(rel))
@@ -243,6 +251,11 @@ def describe(consequence):
     if "gamble" in consequence:
         return "Risky: it could go either way"
     for k, v in consequence.items():
+        if k in ("act", "skill"):
+            continue
+        if k == "note":
+            parts.append(v)
+            continue
         if k == "covered":
             parts.append("your family covered the cost")
             continue

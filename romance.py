@@ -210,9 +210,10 @@ LABELS = {
     "temptation": ("Flirt back", "Turn them down"),
     "prenup": ("Ask for a prenup", "Skip it"),
     "prenupask": ("Sign it", "Refuse"),
+    "surprisebaby": ("Raise the baby together", "Support from a distance", "Stay out of it"),
 }
 HEADS = {"ringchoice": "Choose a ring", "weddingchoice": "Plan the wedding", "proposed": "A proposal!","dance": "School dance", "date": "Date invite", "friend": "Friend request", "hangout": "Invitation",
-         "cheated": "Betrayal", "official": "What are we?", "temptation": "Temptation", "prenup": "Prenup?", "prenupask": "A prenup"}
+         "cheated": "Betrayal", "official": "What are we?", "temptation": "Temptation", "prenup": "Prenup?", "prenupask": "A prenup", "surprisebaby": "Unexpected news"}
 
 def household_income(partner):
     """Money a spouse brings in each year."""

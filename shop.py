@@ -55,10 +55,15 @@ def _chosen(state, key, age):
 
 def draw_shop_tab(screen, rect, mouse_pos, state, age):
     view = state.setdefault("shop_view", "shop")
-    views = {"shop": pygame.Rect(rect.right - 340, rect.y - 2, 64, 26), "assets": pygame.Rect(rect.right - 272, rect.y - 2, 76, 26),
+    views = {"budget": pygame.Rect(rect.right - 420, rect.y - 2, 74, 26), "shop": pygame.Rect(rect.right - 340, rect.y - 2, 64, 26), "assets": pygame.Rect(rect.right - 272, rect.y - 2, 76, 26),
              "biz": pygame.Rect(rect.right - 192, rect.y - 2, 90, 26), "bank": pygame.Rect(rect.right - 98, rect.y - 2, 98, 26)}
-    for key, label in (("shop", "Shop"), ("assets", "Assets"), ("biz", "Business"), ("bank", "Bank")):
+    for key, label in (("budget", "Budget"), ("shop", "Shop"), ("assets", "Assets"), ("biz", "Business"), ("bank", "Bank")):
         draw_pill(screen, views[key], label, small_font, mouse_pos, selected=view == key)
+    if view == "budget":
+        import budget
+        return {"items": [], "views": views, "bank": [],
+                "budget": budget.draw_budget(screen, pygame.Rect(rect.x, rect.y + 30, rect.width, rect.height - 30), mouse_pos, state,
+                                             state.get("_career", {}), age, state.get("_people", []))}
     if view == "biz":
         import business
         return {"items": [], "views": views, "bank": [], "biz": business.draw_business(screen, rect, mouse_pos, state, age)}
@@ -148,6 +153,10 @@ def handle_shop_click(mx, my, buttons, state, age, log):
             else:
                 state["shop_view"] = key
             return
+    if buttons.get("budget") is not None:
+        import budget
+        budget.handle_budget_click(mx, my, buttons["budget"], state, log)
+        return
     if buttons.get("biz") is not None:
         import business
         business.handle_business_click(mx, my, buttons["biz"], state, age, log)

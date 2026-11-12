@@ -12,25 +12,13 @@ def _log(state, text):
     state["journal"].append((state["age"], text))
 
 def yearly_costs(state, career, age, parents_ok):
-    """Rent (unless you own a home or still live with your parents), home
-    value growth, and a small yearly comfort boost from owning a home."""
+    """Rent (unless you own a home, live with your parents or in the family
+    residence), bills, and a small yearly comfort boost from owning a home."""
+    import budget
     stats = state["stats"]
-    home = state.get("home")
-    if home:
+    if state.get("home") or state.get("station") in ("royal", "noble"):
         stats["mental"] = min(100, stats["mental"] + 1)
-        return
-    if age < 18:
-        return
-    if age < LIVE_WITH_PARENTS_UNTIL and parents_ok:
-        return                      # still at the family home
-    if state["money"] >= RENT:
-        state["money"] -= RENT
-    else:
-        paid = state["money"]
-        state["money"] = 0
-        stats["mental"] = max(0, stats["mental"] - 2)
-        stats["wealth"] = max(0, stats["wealth"] - 2)
-        _log(state, f"You could only pay ${fmt(paid)} of your ${fmt(RENT)} rent. It was a stressful year.")
+    budget.year(state, age, lambda t: _log(state, t))
 
 def health_year(state, age):
     """Illness and injury. Adults pay the bill; children don't."""

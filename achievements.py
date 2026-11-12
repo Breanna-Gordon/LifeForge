@@ -48,6 +48,7 @@ ACHIEVEMENTS = [
     ("Empire",           "Own 3 businesses at once",     lambda s, c, f, p, pe: len(s.get("businesses", [])) >= 3),
     ("Going Public",     "Take a company public",        lambda s, c, f, p, pe: any(b.get("public") for b in s.get("businesses", []))),
     ("Grandparent",      "Have a grandchild",            lambda s, c, f, p, pe: any(x.get("is_grand") for x in pe)),
+    ("Philanthropist",  "Leave money to charity",       lambda s, c, f, p, pe: s.get("charity_total", 0) > 0),
     ("Dynasty",          "Play on as your heir",         lambda s, c, f, p, pe: s.get("generation", 1) >= 2),
     ("Private Student",  "Go to a private school",       lambda s, c, f, p, pe: bool(s.get("private_school"))),
 ]

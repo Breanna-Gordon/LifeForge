@@ -1,4 +1,5 @@
 import pygame
+import nightmode as _nm
 
 pygame.font.init()
 
@@ -48,7 +49,7 @@ STAT_LABELS = {"physical": "Health", "mental": "Mental", "social": "Social", "ac
 # colour itself is now freely pickable, not limited to a fixed swatch list.
 DEFAULT_HAIR_COLOUR = (35, 28, 24)
 
-HAIRSTYLES = ["Bald", "Buzzcut", "Short", "Long", "Ponytail", "Spiky", "Mohawk", "Curly"]
+HAIRSTYLES = ["Short", "SidePart", "Fade", "Buzzcut", "Undercut", "Curly", "Afro", "Long", "Bald", "Wavy", "Ponytail", "Bun", "Bob", "Pixie", "Braids"]
 
 # Skin tone options — separate from hair colour, applies to the avatar's face
 SKIN_TONES = [
@@ -63,7 +64,7 @@ SKIN_TONES = [
 ]
 
 # Facial hair — offered only when gender is "Male"
-FACIAL_HAIR_STYLES = ["None", "Stubble", "Moustache", "Beard"]
+FACIAL_HAIR_STYLES = ["None", "Stubble", "Moustache", "Goatee", "Beard"]
 
 # Pygame's bundled default font instead of SysFont — SysFont depends on fonts
 # installed on the machine (or browser sandbox) it runs on, which can't be
@@ -74,6 +75,7 @@ title_font = pygame.font.Font(None, 52)
 title_font.set_bold(True)
 
 def draw_text(screen, text, selected_font, colour, x, y, centre=False):
+    colour = _nm.map_text(colour, screen, (x, y))
     surface = selected_font.render(str(text), True, colour)
     rect = surface.get_rect()
     if centre:

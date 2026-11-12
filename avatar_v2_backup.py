@@ -1,0 +1,746 @@
+import math
+import pygame
+
+# Stylised illustrated avatars: shaped faces, almond eyes, defined noses and
+# lips, layered hair with highlights, and layered clothes. Everything is drawn
+# at 4x and scaled down for smooth edges, and cached.
+SS = 4
+_cache = {}
+
+def _shade(c, f):
+    return tuple(max(0, min(255, int(v * f))) for v in c[:3])
+
+def _mix(a, b, t):
+    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+def _spline(pts, closed=True, n=8):
+    """Catmull-Rom curve through the points, so shapes are smooth."""
+    out = []
+    count = len(pts)
+    rng = range(count) if closed else range(count - 1)
+    for i in rng:
+        p0 = pts[(i - 1) % count] if closed or i > 0 else pts[0]
+        p1 = pts[i]
+        p2 = pts[(i + 1) % count]
+        p3 = pts[(i + 2) % count] if closed or i + 2 < count else pts[-1]
+        for k in range(n):
+            t = k / n
+            t2, t3 = t * t, t * t * t
+            out.append((0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+                        0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)))
+    if not closed:
+        out.append(pts[-1])
+    return out
+
+def _mirror(half):
+    """half: points with x>=0 from the top-centre down to the bottom-centre."""
+    left = [(-x, y) for x, y in reversed(half) if x != 0]
+    return half + left
+
+def _shape(S, pts, fill, line=0.55, w=3, alpha=255):
+    if alpha < 255:
+        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+        x0, y0 = int(min(xs)) - 2, int(min(ys)) - 2
+        tmp = pygame.Surface((int(max(xs)) - x0 + 4, int(max(ys)) - y0 + 4), pygame.SRCALPHA)
+        shifted = [(x - x0, y - y0) for x, y in pts]
+        pygame.draw.polygon(tmp, (*fill[:3], alpha), shifted)
+        S.blit(tmp, (x0, y0))
+        return
+    pygame.draw.polygon(S, fill, pts)
+    if line and w:
+        pygame.draw.lines(S, _shade(fill, line), True, pts, w)
+
+
+import random as _random
+
+def _beard_polys(P, half, fw, sc, cx, cy, my, mw, u, chin, reach=0.0, upper=True):
+    """Outline of a jaw beard (right half mirrored) as one polygon, so there are no seams."""
+    outer = [P(x * fw * 1.0, y * sc * 1.0) for x, y in half[3:]]
+    inner = [(cx + mw * 0.9, my + 0.05 * u + reach * u), (cx + mw * 1.7, my + 0.012 * u),
+             (cx + fw * 0.46, my - 0.034 * u), (cx + fw * 0.8, cy - 0.02 * u)]
+    right = outer + inner
+    pts = right + [(2 * cx - x, y) for x, y in reversed(right)]
+    return pts
+
+def _hairy(head, polys, colour, mode, seed, lw=2, SSc=4):
+    """Draws facial hair into `head` from a mask: 'stubble' is stippled dots,
+    'beard' is a soft, textured fill. Edges are feathered, never a flat block."""
+    W, H = head.get_size()
+    rnd = _random.Random(seed)
+    mask = pygame.Surface((W, H), pygame.SRCALPHA)
+    for p in polys:
+        pygame.draw.polygon(mask, (255, 255, 255, 255), p)
+    # feather the edge: blur the mask a little
+    small = pygame.transform.smoothscale(mask, (max(1, W // 6), max(1, H // 6)))
+    soft = pygame.transform.smoothscale(small, (W, H))
+    m = pygame.mask.from_surface(mask, 128)
+    rects = m.get_bounding_rects()
+    if not rects:
+        return
+    box = rects[0].unionall(rects[1:]) if len(rects) > 1 else rects[0]
+    layer = pygame.Surface((W, H), pygame.SRCALPHA)
+    if mode == "stubble":
+        tint = pygame.Surface((W, H), pygame.SRCALPHA)
+        tint.fill((*colour, 46))
+        tint.blit(soft, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+        layer.blit(tint, (0, 0))
+        area = box.w * box.h
+        for _ in range(int(area / (SSc * SSc * 9.5))):
+            x = rnd.randint(box.x, box.right - 1)
+            y = rnd.randint(box.y, box.bottom - 1)
+            if not m.get_at((x, y)):
+                continue
+            t = (y - box.y) / max(1, box.h)
+            if rnd.random() > 0.35 + 0.65 * t:
+                continue
+            a = rnd.randint(90, 170)
+            col = _shade(colour, rnd.choice((0.8, 1.0, 1.15)))
+            pygame.draw.circle(layer, (*col, a), (x, y), rnd.choice((1, 2, 2, 3)) * SSc // 3 + 1)
+    else:
+        base = pygame.Surface((W, H), pygame.SRCALPHA)
+        base.fill((*colour, 255))
+        # strands that follow the jaw: short curved dashes
+        cxm = box.centerx
+        for _ in range(int(box.w * box.h / (SSc * SSc * 38))):
+            x = rnd.randint(box.x, box.right - 1)
+            y = rnd.randint(box.y, box.bottom - 1)
+            if not m.get_at((x, y)):
+                continue
+            side = -1 if x < cxm else 1
+            ln = rnd.randint(7, 15) * SSc // 2
+            dx = side * -ln * 0.35
+            lighter = rnd.random() < 0.55
+            col = _mix(colour, (255, 255, 255), 0.2) if lighter else _shade(colour, 0.62)
+            pygame.draw.line(base, (*col, 150), (x, y), (x + dx, y + ln), max(1, lw // 2))
+        # darker toward the edge of the jaw, softer in the middle
+        edge = pygame.Surface((W, H), pygame.SRCALPHA)
+        edge.fill((*_shade(colour, 0.55), 255))
+        base.blit(edge, (0, 0), special_flags=pygame.BLEND_RGBA_MIN) if False else None
+        base.blit(soft, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+        layer = base
+        # crisp-ish outline so it still reads as hair against the skin
+        for p in polys:
+            pygame.draw.lines(layer, (*_shade(colour, 0.5), 200), True, p, max(1, lw // 2))
+        keep = pygame.Surface((W, H), pygame.SRCALPHA)
+        keep.blit(mask, (0, 0))
+        layer.blit(keep, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+    head.blit(layer, (0, 0))
+
+def _stage(age):
+    if age is None: return "adult"
+    if age < 7: return "baby"
+    if age < 13: return "child"
+    if age < 20: return "teen"
+    if age < 65: return "adult"
+    return "elder"
+
+def _hair_for_age(colour, age):
+    if age is None or age < 45:
+        return colour
+    return _mix(colour, (205, 205, 210), min(1.0, (age - 45) / 25))
+
+PALETTES = {
+    "Male": [((70, 98, 62), (150, 190, 230), (120, 170, 220)),     # olive jacket, blue shirt
+             ((60, 70, 110), (235, 235, 240), (200, 200, 215)),     # navy, white shirt
+             ((120, 60, 60), (230, 215, 190), (200, 180, 150))],    # maroon, cream
+    "Female": [((226, 160, 130), (210, 220, 190), (200, 165, 130)),   # peach knit, sage collar, beige
+               ((120, 90, 150), (240, 235, 245), (200, 190, 220)),     # purple, white
+               ((70, 120, 120), (240, 225, 200), (225, 205, 170))],    # teal, cream
+}
+
+EYE_COLOURS = {"Brown": ((84, 58, 42), (36, 24, 20)), "Dark": ((46, 34, 28), (20, 14, 12)), "Blue": ((70, 120, 190), (24, 36, 60)),
+               "Green": ((70, 140, 90), (22, 44, 30)), "Hazel": ((128, 100, 50), (40, 30, 18)), "Grey": ((120, 130, 140), (36, 40, 46)),
+               "Amber": ((170, 110, 40), (50, 30, 12)), "Violet": ((130, 90, 170), (40, 26, 56))}
+EYE_SHAPES = {"Almond": (1.0, 1.0), "Round": (0.92, 1.28), "Wide": (1.12, 1.1), "Narrow": (1.08, 0.78), "Sleepy": (1.0, 0.85)}
+LIP_STYLES = {"Natural": (None, 1.0), "Full": (None, 1.45), "Thin": (None, 0.65), "Rose": ((205, 100, 120), 1.1), "Red": ((190, 40, 56), 1.1),
+              "Berry": ((130, 40, 80), 1.1), "Nude": ((190, 140, 120), 1.0), "Plum": ((96, 36, 72), 1.2)}
+BROW_STYLES = {"Natural": (1.0, 0.0), "Thick": (1.6, 0.0), "Thin": (0.55, 0.0), "Arched": (0.9, 1.0), "Straight": (1.1, -0.8)}
+OUTFITS = {"Male": ["Smart", "Navy", "Maroon", "Hoodie", "Forest", "Charcoal", "Sunset", "Denim"],
+           "Female": ["Peach", "Purple", "Teal", "Rose", "Mint", "Black", "Denim", "Gold"]}
+EXTRA_PALETTES = {"Male": [((70, 76, 86), (235, 235, 240), (210, 210, 220)), ((40, 70, 130), (120, 160, 220), (100, 140, 200)),
+                           ((46, 50, 56), (200, 200, 205), (180, 180, 188)), ((130, 90, 50), (235, 225, 205), (215, 200, 170)),
+                           ((190, 80, 60), (245, 235, 220), (225, 205, 180))],
+                  "Female": [((200, 80, 110), (250, 235, 240), (235, 205, 215)), ((150, 200, 170), (245, 250, 245), (215, 235, 220)),
+                             ((40, 40, 48), (235, 235, 240), (200, 200, 210)), ((80, 110, 160), (220, 230, 245), (190, 205, 230)),
+                             ((220, 180, 70), (255, 245, 215), (240, 225, 180))]}
+
+FACE_SHAPES = ["Oval", "Round", "Square", "Long", "Heart"]
+NOSES = {"Small": (0.8, -0.008), "Button": (0.75, -0.012), "Straight": (1.0, 0.0), "Wide": (1.4, 0.0), "Long": (1.05, 0.016)}
+FRECKLES = ["None", "Light", "Heavy"]
+GLASSES = ["None", "Round", "Square", "Aviator", "Cat-eye", "Sunglasses"]
+MAKEUP = ["None", "Natural", "Bold", "Glam"]
+EARRINGS = ["None", "Studs", "Hoops"]
+MARKS = ["None", "Mole", "Beauty spot", "Scar"]
+
+def _face_adjust(half, shape):
+    h = [list(p) for p in half]
+    n = len(h)
+    if shape == "Round":
+        for i in range(3, n - 1):
+            h[i][0] *= 1.07
+        h[-1][1] *= 0.97
+    elif shape == "Square":
+        for i in range(4, n - 1):
+            h[i][0] *= 1.1 + 0.03 * (i - 4)
+        h[-1][1] *= 1.0
+    elif shape == "Long":
+        for p in h:
+            p[1] *= 1.07
+        for i in range(2, n - 1):
+            h[i][0] *= 0.95
+    elif shape == "Heart":
+        for i in range(4, n - 1):
+            h[i][0] *= 0.82 - 0.03 * (i - 4)
+        for i in range(1, 4):
+            h[i][0] *= 1.03
+    return [tuple(p) for p in h]
+
+def _render(w, h, gender, hair, style, skin, facial, age, mood, seed, feat=None):
+    feat = feat or {}
+    W, H = w * SS, h * SS
+    u = min(W, H)
+    female = gender == "Female"
+    stage = _stage(age)
+    baby, child, elder = stage == "baby", stage == "child", stage == "elder"
+    young = baby or child
+    hair = _hair_for_age(hair, age)
+    hair_hi = _mix(hair, (255, 255, 255), 0.28)
+    hair_lo = _shade(hair, 0.6)
+    skin_l = _mix(skin, (255, 255, 255), 0.18)
+    skin_d = _shade(skin, 0.86)
+    skin_dd = _shade(skin, 0.7)
+    lw = max(2, int(u * 0.0055))
+
+    cx = W / 2
+    cy = H * 0.40
+    # proportions
+    fw = u * (0.205 if not female else 0.19) * (1.4 if baby else 1.2 if child else 0.97 if stage=='teen' else 1.0)
+    fsc = 1.0 if not young else (0.82 if baby else 0.92)   # face length scale (kids have rounder faces)
+    sc = u * fsc
+
+    def P(x, y):
+        return (cx + x, cy + y)
+
+    body = pygame.Surface((W, H), pygame.SRCALPHA)
+    head = pygame.Surface((W, H), pygame.SRCALPHA)
+
+    # ---------------- body & clothes ----------------
+    _g = gender if gender in PALETTES else "Male"
+    _all = PALETTES[_g] + EXTRA_PALETTES[_g]
+    pal = _all[feat["outfit"] % len(_all)] if feat.get("outfit") is not None else _all[seed % 3]
+    outer, inner, under = pal
+    if stage == "baby": outer, inner, under = (255, 226, 150), (255, 240, 200), (255, 226, 150)
+    elif stage == "child": outer, inner, under = ((96, 190, 150) if not female else (250, 170, 90)), (255, 255, 255), (255, 255, 255)
+    elif elder: outer = _mix(outer, (150, 150, 158), 0.4)
+    shoulder_w = 0.62 if not baby else 0.46
+    top = cy + (0.34 if baby else 0.39 if child else 0.44 if elder else 0.42) * u
+    bust = [(cx - shoulder_w * u, H + 4), (cx - (shoulder_w - 0.04) * u, top + 0.2 * u), (cx - 0.38 * u, top + 0.07 * u),
+            (cx - 0.16 * u, top - 0.02 * u), (cx + 0.16 * u, top - 0.02 * u), (cx + 0.38 * u, top + 0.07 * u),
+            (cx + (shoulder_w - 0.04) * u, top + 0.2 * u), (cx + shoulder_w * u, H + 4)]
+    if stage == "teen":        # hoodie bulk behind the neck
+        hood = _spline([(cx - 0.3 * u, top + 0.05 * u), (cx - 0.2 * u, top - 0.08 * u), (cx + 0.2 * u, top - 0.08 * u), (cx + 0.3 * u, top + 0.05 * u),
+                        (cx, top + 0.16 * u)], True, 8)
+        _shape(body, hood, _shade(outer, 0.85), 0.5, lw)
+    _shape(body, _spline(bust, False, 8) + [(cx + shoulder_w * u, H + 4), (cx - shoulder_w * u, H + 4)], outer, 0.55, lw)
+    # neck
+    nk = 0.095 * u if female else 0.118 * u
+    neck = [(cx - nk, cy + 0.2 * u), (cx - nk * 1.05, top + 0.02 * u), (cx + nk * 1.05, top + 0.02 * u), (cx + nk, cy + 0.2 * u)]
+    if stage in ("teen", "adult", "elder") and under != inner:
+        # turtleneck / undershirt, collar of the inner shirt, open outer layer
+        _shape(body, _spline([(cx - nk * 1.2, top - 0.02 * u), (cx - nk * 1.1, top - 0.08 * u), (cx + nk * 1.1, top - 0.08 * u),
+                              (cx + nk * 1.2, top - 0.02 * u), (cx, top + 0.24 * u)], True, 6), under, 0.6, lw)
+    _shape(body, neck, skin_d, 0.8, lw)
+    if stage in ("teen", "adult", "elder"):
+        # V opening: skin, undershirt, shirt collar, outer lapels
+        v = [(cx - nk * 1.1, top - 0.02 * u), (cx + nk * 1.1, top - 0.02 * u), (cx, top + 0.26 * u)]
+        _shape(body, v, skin_d if under == inner else under, 0.6, lw)
+        for sx in (-1, 1):
+            collar = [(cx + sx * nk * 0.9, top - 0.05 * u), (cx + sx * nk * 2.4, top + 0.02 * u), (cx + sx * nk * 1.7, top + 0.17 * u),
+                      (cx + sx * 0.02 * u, top + 0.2 * u)]
+            _shape(body, collar, inner, 0.7, lw)
+            lap = [(cx + sx * nk * 2.1, top + 0.0 * u), (cx + sx * nk * 3.4, top + 0.12 * u), (cx + sx * nk * 2.4, top + 0.32 * u),
+                   (cx + sx * nk * 1.1, top + 0.3 * u)]
+            _shape(body, lap, _shade(outer, 0.88), 0.55, lw)
+        # plaid hint on the inner shirt for men
+        if not female and inner != (235, 235, 240):
+            for k in range(4):
+                for sx in (-1, 1):
+                    pygame.draw.line(body, _shade(inner, 0.85), (cx + sx * nk * (1.1 + k * 0.5), top + 0.02 * u),
+                                     (cx + sx * nk * (0.8 + k * 0.35), top + 0.15 * u), max(1, lw - 1))
+    else:
+        _shape(body, _spline([(cx - nk * 1.4, top + 0.01 * u), (cx, top + 0.1 * u), (cx + nk * 1.4, top + 0.01 * u),
+                              (cx, top - 0.04 * u)], True, 6), skin_d, 0.7, lw)
+    # a soft shadow under the chin on the neck
+    sh = pygame.Surface((W, H), pygame.SRCALPHA)
+    pygame.draw.ellipse(sh, (*skin_dd, 110), pygame.Rect(int(cx - nk * 1.2), int(cy + 0.2 * u), int(nk * 2.4), int(0.12 * u)))
+    body.blit(sh, (0, 0))
+    # fabric fold lines
+    for sx in (-1, 1):
+        pygame.draw.arc(body, _shade(outer, 0.8), pygame.Rect(int(cx + sx * 0.3 * u - 0.1 * u), int(top + 0.22 * u), int(0.2 * u), int(0.28 * u)),
+                        math.pi * (0.1 if sx > 0 else 0.55), math.pi * (0.45 if sx > 0 else 0.9), lw)
+    if age is not None and age >= 25 and not young and not female and seed % 3 == 0:
+        for k in range(9):    # a chain necklace
+            a = math.pi * (0.1 + 0.8 * k / 8)
+            pygame.draw.circle(body, (210, 210, 220), (int(cx + math.cos(a) * nk * 1.7), int(top + 0.03 * u + math.sin(a) * 0.19 * u)), max(2, lw))
+
+    # ---------------- back hair ----------------
+    def hair_shape(pts, fill=hair, line=0.5, alpha=255):
+        _shape(head, pts, fill, line, lw, alpha)
+
+    hair_scale = 0.9 if baby else 1.0
+    if style in ("Long", "Wavy", "Braids", "Dreads") and not baby:
+        half = [(0, -0.345), (0.17, -0.335), (0.275, -0.26), (0.32, -0.12), (0.34, 0.1), (0.37, 0.3), (0.36, 0.46), (0.3, 0.5), (0.21, 0.46), (0.0, 0.46)]
+        back = [P(x, y) for x, y in _spline(_mirror([(x * u, y * sc) for x, y in half]), True, 8)]
+        hair_shape(back, hair_lo)
+    elif style == "Ponytail" and not baby:
+        tail = _spline([(0.17 * u, -0.17 * sc), (0.33 * u, -0.1 * sc), (0.4 * u, 0.12 * sc), (0.37 * u, 0.38 * sc), (0.3 * u, 0.46 * sc),
+                        (0.28 * u, 0.3 * sc), (0.24 * u, 0.1 * sc)], True, 8)
+        hair_shape([P(x, y) for x, y in tail], hair_lo)
+    elif style == "Pigtails" and not baby:
+        for sx in (-1, 1):
+            tail = _spline([(sx * 0.2 * u, -0.1 * sc), (sx * 0.36 * u, -0.02 * sc), (sx * 0.42 * u, 0.2 * sc), (sx * 0.36 * u, 0.4 * sc), (sx * 0.28 * u, 0.36 * sc),
+                            (sx * 0.27 * u, 0.15 * sc)], True, 8)
+            hair_shape([P(x, y) for x, y in tail], hair_lo)
+    elif style == "Bob" and not baby:
+        half = [(0, -0.345), (0.17, -0.335), (0.275, -0.26), (0.31, -0.1), (0.32, 0.06), (0.3, 0.17), (0.2, 0.2), (0.0, 0.2)]
+        back = [P(x, y) for x, y in _spline(_mirror([(x * u, y * sc) for x, y in half]), True, 8)]
+        hair_shape(back, hair_lo)
+    elif style == "Afro" and not baby:
+        for a in range(0, 360, 20):
+            r = u * 0.1
+            x = math.cos(math.radians(a)) * u * 0.33
+            y = -math.sin(math.radians(a)) * u * 0.34 * (sc / u) - 0.02 * u
+            if a > 180 and a < 360 and y > -0.02 * u: continue
+            pygame.draw.circle(head, hair_lo, (int(cx + x), int(cy + y)), int(r))
+    elif style == "Curly" and not baby:
+        for a in range(0, 360, 28):
+            r = u * 0.075
+            x = math.cos(math.radians(a)) * u * 0.265
+            y = -math.sin(math.radians(a)) * u * 0.27 * (sc / u) - 0.02 * u
+            if a > 180 and a < 360 and y > -0.02 * u: continue
+            pygame.draw.circle(head, hair_lo, (int(cx + x), int(cy + y)), int(r))
+
+    # ---------------- face ----------------
+    chin = 0.325 if female else 0.335
+    half = [(0, -0.27), (0.74, -0.255), (0.96, -0.15), (1.0, -0.02), (0.97, 0.1), (0.86 if not female else 0.78, 0.2),
+            (0.55 if not female else 0.46, 0.285), (0.24 if not female else 0.16, chin - 0.012), (0, chin)]
+    if young:
+        half = [(0, -0.26), (0.8, -0.24), (1.02, -0.1), (1.04, 0.03), (0.96, 0.14), (0.78, 0.22), (0.5, 0.275), (0.22, 0.3), (0, 0.305)]
+    if feat.get("face"):
+        half = _face_adjust(half, feat["face"])
+    face_pts = _mirror([(x * fw, y * sc) for x, y in half])
+    face = _spline([P(x, y) for x, y in face_pts], True, 8)
+    # ears first (behind the face)
+    for sx in (-1, 1):
+        ear = _spline([P(sx * fw * 0.96, -0.03 * u), P(sx * fw * 1.12, -0.04 * u), P(sx * fw * 1.17, 0.04 * u), P(sx * fw * 1.08, 0.11 * u),
+                       P(sx * fw * 0.98, 0.1 * u)], True, 6)
+        _shape(head, ear, skin, 0.6, lw)
+        pygame.draw.arc(head, skin_d, pygame.Rect(int(cx + sx * fw * 1.07 - 0.015 * u), int(cy + 0.0 * u), int(0.03 * u), int(0.07 * u)),
+                        math.pi * (1.5 if sx > 0 else 0.5), math.pi * (2.5 if sx > 0 else 1.5), lw)
+    _shape(head, face, skin, 0.6, lw)
+    # form shadow along the right side and under the cheek, light on the left
+    shade_layer = pygame.Surface((W, H), pygame.SRCALPHA)
+    right = [P(x * fw, y * sc) for x, y in half[2:]]
+    inner_pts = [P(x * fw * 0.8, y * sc) for x, y in reversed(half[2:])]
+    pygame.draw.polygon(shade_layer, (*skin_dd, 70), _spline(right + inner_pts, True, 5))
+    pygame.draw.ellipse(shade_layer, (*skin_l, 70), pygame.Rect(int(cx - fw * 0.75), int(cy - 0.2 * u), int(fw * 0.7), int(0.1 * u)))
+    for sx in (-1, 1):   # blush
+        pygame.draw.circle(shade_layer, (235, 100, 110, 60 if not male_like(gender) else 40), (int(cx + sx * fw * 0.58), int(cy + 0.095 * u)), int(0.045 * u))
+    head.blit(shade_layer, (0, 0))
+
+    # ---------------- eyes ----------------
+    ex = fw * 0.47
+    ey = cy + (0.032 if baby else 0.014 if child else -0.015) * u
+    _sa, _sb = EYE_SHAPES.get(feat.get("eye_shape"), (1.0, 1.0))
+    a_ = u * (0.058 if not young else (0.072 if baby else 0.065)) * (1.08 if female else 1.0) * _sa
+    b_ = u * (0.026 if not young else (0.047 if baby else 0.038)) * (1.12 if female else 1.0) * _sb
+    _iris, _pupil = EYE_COLOURS.get(feat.get("eyes"), EYE_COLOURS["Brown"])
+    for sx in (-1, 1):
+        def E(x, y):   # x: toward outer corner
+            return (cx + sx * (ex + x * a_), ey + y * b_)
+        shape_pts = _spline([E(-1.0, 0.1), E(-0.55, -0.85), E(0.2, -1.05), E(0.8, -0.65), E(1.05, -0.2), E(0.7, 0.45), E(0.0, 0.85), E(-0.6, 0.55)], True, 8)
+        layer = pygame.Surface((W, H), pygame.SRCALPHA)
+        mask = pygame.Surface((W, H), pygame.SRCALPHA)
+        pygame.draw.polygon(layer, (250, 248, 245), shape_pts)
+        pygame.draw.polygon(mask, (255, 255, 255, 255), shape_pts)
+        ic = E(0.05, 0.0)
+        pygame.draw.circle(layer, _iris, ic, int(b_ * 0.98))
+        pygame.draw.circle(layer, _pupil, ic, int(b_ * 0.52))
+        pygame.draw.circle(layer, (255, 255, 255), (int(ic[0] - b_ * 0.3), int(ic[1] - b_ * 0.3)), max(2, int(b_ * 0.22)))
+        pygame.draw.ellipse(layer, (0, 0, 0, 50), pygame.Rect(int(ic[0] - b_), int(ic[1] - b_), int(b_ * 2), int(b_ * 0.9)))   # lid shadow on the iris
+        layer.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        head.blit(layer, (0, 0))
+        upper = _spline([E(-1.0, 0.1), E(-0.55, -0.85), E(0.2, -1.05), E(0.8, -0.65), E(1.05, -0.2)], False, 8)
+        pygame.draw.lines(head, _shade(hair if sum(hair) > 90 else (50, 38, 36), 0.5), False, upper, max(lw + 2, int(u * 0.0085)))
+        if female and not baby:      # wing + lashes
+            pygame.draw.line(head, (40, 30, 30), E(1.05, -0.2), E(1.4, -0.5), max(lw, 3))
+        lower = _spline([E(-0.6, 0.55), E(0.0, 0.85), E(0.7, 0.45)], False, 6)
+        pygame.draw.lines(head, skin_dd, False, lower, max(2, lw - 1))
+        # crease above the eye
+        crease = _spline([E(-0.7, -1.35), E(0.1, -1.55), E(0.9, -1.15)], False, 6)
+        pygame.draw.lines(head, skin_d, False, crease, max(2, lw - 1))
+        # eyebrows
+        _bm, _ba = BROW_STYLES.get(feat.get("brows"), (1.0, 0.0))
+        thick = u * (0.0165 if not female else 0.011) * (1.0 if not young else 0.8) * _bm
+        by = ey - (u * 0.058 if not young else b_ * 2.1)
+        sad = mood < 35
+        bx0, bx1 = ex - a_ * 1.0, ex + a_ * 1.15
+        lift = u * 0.014 * (1 if sad else 0) + u * 0.012 * _ba
+        up = [(cx + sx * bx0, by - lift * 1.2 + (0.003 * u)), (cx + sx * (ex - a_ * 0.1), by - u * 0.012 - thick * 0.8 - lift * 0.4),
+              (cx + sx * (ex + a_ * 0.7), by - u * 0.014 - thick * 0.9 + lift * 0.4), (cx + sx * bx1, by + u * 0.01 + lift * 0.5)]
+        lo = [(cx + sx * bx1, by + u * 0.012 + lift * 0.5), (cx + sx * (ex + a_ * 0.7), by - u * 0.004 + lift * 0.4), (cx + sx * (ex - a_ * 0.1), by - u * 0.002 - lift * 0.3),
+              (cx + sx * bx0, by + thick * 0.8 - lift * 1.2)]
+        brow = _spline(up + lo, True, 6)
+        _shape(head, brow, _shade(hair, 0.55) if sum(hair) > 120 else hair, None, 0)
+
+    # ---------------- nose ----------------
+    nb = cy - 0.025 * u
+    ntip = cy + (0.075 if not young else (0.085 if baby else 0.072)) * u
+    nw = u * (0.04 if not young else 0.022)
+    _nm = NOSES.get(feat.get("nose"), (1.0, 0.0))
+    nw *= _nm[0]
+    ntip += _nm[1] * u
+    pygame.draw.lines(head, skin_dd, False, _spline([(cx + 0.012 * u, nb), (cx + 0.02 * u, cy + 0.02 * u), (cx + 0.016 * u, ntip - 0.012 * u)], False, 6), max(2, lw - 1))
+    nl = pygame.Surface((W, H), pygame.SRCALPHA)
+    pygame.draw.polygon(nl, (*skin_dd, 55), [(cx + 0.012 * u, nb), (cx + 0.05 * u, cy + 0.03 * u), (cx + nw, ntip), (cx + 0.016 * u, ntip - 0.012 * u)])
+    pygame.draw.ellipse(nl, (*skin_l, 110), pygame.Rect(int(cx - 0.016 * u), int(ntip - 0.03 * u), int(0.026 * u), int(0.022 * u)))
+    head.blit(nl, (0, 0))
+    for sx in (-1, 1):
+        pygame.draw.arc(head, skin_dd, pygame.Rect(int(cx + sx * nw * 0.9 - 0.014 * u), int(ntip - 0.018 * u), int(0.028 * u), int(0.026 * u)),
+                        math.pi * 0.9, math.pi * 2.1, max(2, lw))
+    pygame.draw.arc(head, skin_dd, pygame.Rect(int(cx - nw * 0.9), int(ntip - 0.015 * u), int(nw * 1.8), int(0.026 * u)), math.pi * 1.1, math.pi * 1.9, max(2, lw))
+
+    # ---------------- facial hair under the mouth ----------------
+    my = cy + (0.168 if not young else (0.155 if baby else 0.16)) * u
+    mw = u * (0.058 if not young else 0.04)
+    has_fh = (not female) and facial != "None" and (age is None or age >= 15)
+    if has_fh and facial in ("Sideburns", "MuttonChops"):
+        for sx in (-1, 1):
+            lo = 0.14 if facial == "Sideburns" else 0.2
+            _shape(head, [P(sx * fw * 0.93, -0.1 * u), P(sx * fw * 1.0, -0.08 * u), P(sx * fw * (0.96 if facial == "Sideburns" else 1.0), lo * u),
+                          P(sx * fw * (0.82 if facial == "Sideburns" else 0.6), (lo + 0.02) * u), P(sx * fw * 0.84, 0.0)], hair, 0.5, lw)
+    elif has_fh and facial == "ChinStrap":
+        for sx in (-1, 1):
+            outer = [P(sx * x * fw * 0.99, y * sc * 0.99) for x, y in half[3:]]
+            inner = [P(sx * x * fw * 0.9, (y - 0.018) * sc) for x, y in reversed(half[3:])]
+            _shape(head, outer + inner, hair, 0.5, lw)
+    elif has_fh and facial == "SoulPatch":
+        _shape(head, _spline([(cx - mw * 0.35, my + 0.034 * u), (cx, my + 0.03 * u), (cx + mw * 0.35, my + 0.034 * u), (cx + mw * 0.25, my + 0.062 * u), (cx - mw * 0.25, my + 0.062 * u)], True, 5), hair, 0.5, lw)
+    elif has_fh and facial == "VanDyke":
+        _shape(head, _spline([(cx - mw * 0.9, my + 0.034 * u), (cx - mw * 0.5, my + 0.07 * u), (cx, my + 0.12 * u), (cx + mw * 0.5, my + 0.07 * u),
+                              (cx + mw * 0.9, my + 0.034 * u), (cx, my + 0.046 * u)], True, 6), hair, 0.5, lw)
+    elif has_fh and facial == "LongBeard":
+        poly = _beard_polys(P, half, fw, sc, cx, cy, my, mw, u, chin, reach=0.03)
+        tip = [(cx - fw * 0.5, cy + chin * sc * 0.9), (cx + fw * 0.5, cy + chin * sc * 0.9), (cx + fw * 0.3, cy + chin * sc + 0.1 * u),
+               (cx, cy + chin * sc + 0.24 * u), (cx - fw * 0.3, cy + chin * sc + 0.1 * u)]
+        _hairy(head, [poly, tip], hair, "beard", seed + 5, lw)
+    elif has_fh and facial == "Beard":
+        _hairy(head, [_beard_polys(P, half, fw, sc, cx, cy, my, mw, u, chin, reach=0.02)], hair, "beard", seed + 3, lw)
+    elif has_fh and facial == "Goatee":
+        _shape(head, _spline([(cx - mw * 1.0, my + 0.034 * u), (cx - mw * 0.7, my + 0.07 * u), (cx, my + 0.085 * u), (cx + mw * 0.7, my + 0.07 * u),
+                              (cx + mw * 1.0, my + 0.034 * u), (cx, my + 0.046 * u)], True, 6), hair, 0.5, lw)
+    elif has_fh and facial == "Stubble":
+        polys = [_beard_polys(P, half, fw, sc, cx, cy, my, mw, u, chin, reach=0.0)]
+        lip = [(cx - mw * 1.6, my - 0.032 * u), (cx + mw * 1.6, my - 0.032 * u), (cx + mw * 1.3, my + 0.0), (cx - mw * 1.3, my + 0.0)]
+        _hairy(head, polys + [lip], hair, "stubble", seed + 7, lw)
+
+    # ---------------- mouth ----------------
+    corner = (-0.012 if mood >= 60 else (-0.004 if mood >= 35 else 0.012)) * u
+    _lc, _lt = LIP_STYLES.get(feat.get("lips"), (None, 1.0))
+    lipc = _lc if _lc else _mix(skin, (196, 84, 96), 0.62 if female else 0.38)
+    if _lc:
+        lipc = _mix(_lc, skin, 0.12)
+    upper = _spline([(cx - mw, my + corner), (cx - mw * 0.45, my - 0.014 * u * _lt), (cx, my - 0.009 * u * _lt), (cx + mw * 0.45, my - 0.014 * u * _lt),
+                     (cx + mw, my + corner), (cx, my + 0.003 * u)], True, 6)
+    lower = _spline([(cx - mw, my + corner), (cx, my + 0.003 * u), (cx + mw, my + corner), (cx + mw * 0.5, my + 0.026 * u * _lt + corner * -0.3),
+                     (cx, my + 0.03 * u * _lt), (cx - mw * 0.5, my + 0.026 * u * _lt + corner * -0.3)], True, 6)
+    _shape(head, lower, _mix(lipc, (255, 255, 255), 0.08), 0.7, max(1, lw - 1))
+    _shape(head, upper, _shade(lipc, 0.9), 0.7, max(1, lw - 1))
+    pygame.draw.ellipse(head, _mix(lipc, (255, 255, 255), 0.45), pygame.Rect(int(cx - mw * 0.3), int(my + 0.01 * u), int(mw * 0.6), int(0.009 * u)))
+    if has_fh and facial in ("Moustache", "Beard", "Handlebar", "Goatee", "VanDyke", "LongBeard", "MuttonChops"):
+        for sx in (-1, 1):
+            _hb = 1.35 if facial == "Handlebar" else 1.0
+            mp = _spline([(cx, my - 0.026 * u), (cx + sx * mw * 1.0, my - 0.032 * u), (cx + sx * mw * 1.9 * _hb, my - 0.006 * u - (0.02 * u if _hb > 1 else 0)),
+                          (cx + sx * mw * 1.5, my + 0.018 * u), (cx + sx * mw * 0.6, my - 0.012 * u)], True, 6)
+            _shape(head, mp, hair, 0.5, lw)
+
+    # ---------------- age lines & glasses ----------------
+    if age is not None and age >= 50:
+        for sx in (-1, 1):
+            for k in range(3 if age >= 65 else 1):
+                pygame.draw.line(head, skin_dd, (cx + sx * (ex + a_ * 1.2), ey + (k - 1) * b_ * 0.4), (cx + sx * (ex + a_ * 1.9), ey + (k - 1) * b_ * 0.9), max(1, lw - 1))
+            pygame.draw.arc(head, skin_dd, pygame.Rect(int(cx + sx * 0.07 * u - 0.05 * u), int(cy + 0.1 * u), int(0.1 * u), int(0.12 * u)),
+                            math.pi * (1.55 if sx > 0 else 1.0), math.pi * (2.0 if sx > 0 else 1.45), max(1, lw - 1))
+        pygame.draw.arc(head, skin_dd, pygame.Rect(int(cx - fw * 0.5), int(cy - 0.2 * u), int(fw), int(0.08 * u)), math.pi * 0.15, math.pi * 0.85, max(1, lw - 1))
+    if elder:
+        for sx in (-1, 1):
+            pygame.draw.arc(head, skin_dd, pygame.Rect(int(cx + sx * ex - a_ * 0.9), int(ey + b_ * 0.9), int(a_ * 1.8), int(b_ * 1.6)), math.pi * 1.05, math.pi * 1.95, max(1, lw - 1))
+            for k in range(4):
+                pygame.draw.circle(head, _shade(skin, 0.75), (int(cx + sx * fw * (0.55 + 0.1 * k)), int(ey + b_ * (3 + k % 2))), max(2, lw - 1))
+            pygame.draw.line(head, skin_dd, (cx + sx * mw * 1.6, my - 0.01 * u), (cx + sx * mw * 2.2, my + 0.05 * u), max(1, lw - 1))
+    if age is not None and age >= 65 and "glasses" not in feat:
+        for sx in (-1, 1):
+            r = pygame.Rect(int(cx + sx * ex - a_ * 1.4), int(ey - b_ * 1.9), int(a_ * 2.8), int(b_ * 3.6))
+            pygame.draw.rect(head, (70, 64, 70), r, max(2, lw), border_radius=int(b_ * 1.2))
+        pygame.draw.line(head, (70, 64, 70), (cx - ex + a_ * 1.4, ey - b_ * 0.4), (cx + ex - a_ * 1.4, ey - b_ * 0.4), max(2, lw))
+
+    # ---------------- details: freckles, makeup, marks, glasses, earrings ----------------
+    fr = feat.get("freckles")
+    if fr in ("Light", "Heavy"):
+        import random as _r
+        rng = _r.Random(seed)
+        lay = pygame.Surface((W, H), pygame.SRCALPHA)
+        for _ in range(13 if fr == "Light" else 36):
+            fx = cx + rng.uniform(-fw * 0.62, fw * 0.62)
+            fy = cy + rng.uniform(0.0, 0.1) * u + (0.0 if abs(fx - cx) > fw * 0.12 else -0.02 * u)
+            pygame.draw.circle(lay, (140, 88, 52, 130), (int(fx), int(fy)), max(2, int(lw * 0.8)))
+        head.blit(lay, (0, 0))
+    mk = feat.get("makeup")
+    if mk in ("Natural", "Bold", "Glam") and not young:
+        lay = pygame.Surface((W, H), pygame.SRCALPHA)
+        col = {"Natural": (205, 150, 140, 70), "Bold": (110, 70, 170, 120), "Glam": (210, 60, 110, 120)}[mk]
+        for sx in (-1, 1):
+            pygame.draw.ellipse(lay, col, pygame.Rect(int(cx + sx * ex - a_ * 1.15), int(ey - b_ * 2.4), int(a_ * 2.3), int(b_ * 1.7)))
+            pygame.draw.circle(lay, (235, 100, 120, 55 if mk == "Natural" else 90), (int(cx + sx * fw * 0.58), int(cy + 0.095 * u)), int(0.06 * u))
+            if mk == "Glam":
+                pygame.draw.line(lay, (30, 24, 28, 255), (cx + sx * (ex + a_ * 1.0), ey - b_ * 0.4), (cx + sx * (ex + a_ * 1.7), ey - b_ * 1.2), max(2, lw))
+        head.blit(lay, (0, 0))
+    mrk = feat.get("mark")
+    if mrk == "Mole":
+        pygame.draw.circle(head, (70, 44, 34), (int(cx + fw * 0.42), int(cy + 0.12 * u)), max(2, int(u * 0.007)))
+    elif mrk == "Beauty spot":
+        pygame.draw.circle(head, (60, 38, 30), (int(cx + mw * 2.0), int(my - 0.03 * u)), max(2, int(u * 0.006)))
+    elif mrk == "Scar":
+        p0, p1 = (cx + ex - a_ * 0.4, ey - b_ * 3.0), (cx + ex + a_ * 0.9, ey + b_ * 2.0)
+        pygame.draw.line(head, (205, 140, 130), p0, p1, max(2, lw))
+        for t in (0.35, 0.55, 0.75):
+            qx, qy = p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t
+            pygame.draw.line(head, (205, 140, 130), (qx - u * 0.01, qy), (qx + u * 0.01, qy), max(1, lw - 1))
+    ea = feat.get("earrings")
+    if ea in ("Studs", "Hoops"):
+        for sx in (-1, 1):
+            ex2, ey2 = cx + sx * fw * 1.07, cy + 0.108 * u
+            if ea == "Studs":
+                pygame.draw.circle(head, (235, 205, 110), (int(ex2), int(ey2)), max(2, int(u * 0.011)))
+            else:
+                pygame.draw.circle(head, (235, 205, 110), (int(ex2), int(ey2 + u * 0.022)), int(u * 0.024), max(2, lw))
+    gl = feat.get("glasses")
+    if gl and gl != "None":
+        fc = (50, 44, 52)
+        for sx in (-1, 1):
+            r = pygame.Rect(int(cx + sx * ex - a_ * 1.35), int(ey - b_ * 1.8), int(a_ * 2.7), int(b_ * 3.5))
+            if gl == "Round":
+                pygame.draw.ellipse(head, fc, r.inflate(int(a_ * 0.1), int(b_ * 0.9)), max(2, lw))
+            elif gl == "Square":
+                pygame.draw.rect(head, fc, r, max(2, lw + 1), border_radius=int(b_ * 0.5))
+            elif gl == "Aviator":
+                pygame.draw.polygon(head, fc, [(r.x, r.y + b_ * 0.4), (r.right, r.y + b_ * 0.2), (r.right - a_ * 0.3, r.bottom + b_ * 0.4), (r.x + a_ * 0.4, r.bottom + b_ * 0.1)], max(2, lw))
+            elif gl == "Cat-eye":
+                o = sx
+                pygame.draw.polygon(head, (150, 40, 80), [(r.x if o > 0 else r.right, r.centery), (r.centerx, r.y + b_ * 0.4),
+                                                          (r.right + a_ * 0.2 if o > 0 else r.x - a_ * 0.2, r.y - b_ * 0.7),
+                                                          (r.right if o > 0 else r.x, r.bottom - b_ * 0.2), (r.centerx, r.bottom + b_ * 0.2)], max(2, lw))
+            elif gl == "Sunglasses":
+                lay = pygame.Surface((W, H), pygame.SRCALPHA)
+                pygame.draw.rect(lay, (20, 20, 26, 225), r, border_radius=int(b_ * 0.9))
+                head.blit(lay, (0, 0))
+                pygame.draw.rect(head, (15, 15, 20), r, max(2, lw), border_radius=int(b_ * 0.9))
+            pygame.draw.line(head, fc, (cx + sx * (ex + a_ * 1.35), ey - b_ * 0.4), (cx + sx * fw * 1.08, ey - b_ * 0.3), max(2, lw))
+        pygame.draw.line(head, fc, (cx - ex + a_ * 1.35, ey - b_ * 0.4), (cx + ex - a_ * 1.35, ey - b_ * 0.4), max(2, lw))
+
+    # ---------------- front hair ----------------
+    def R(x, y):
+        return (cx + x * u, cy + y * sc)
+    def strands(curves, w=None, col=hair_hi, alpha=120):
+        lay = pygame.Surface((W, H), pygame.SRCALPHA)
+        for c in curves:
+            pygame.draw.lines(lay, (*col, alpha), False, _spline([R(*p) for p in c], False, 8), w or max(2, lw))
+        head.blit(lay, (0, 0))
+
+    if baby:
+        tuft = _spline([R(-0.05, -0.24), R(-0.02, -0.33), R(0.05, -0.34), R(0.08, -0.29), R(0.03, -0.3), R(0.0, -0.25)], True, 6)
+        hair_shape(tuft)
+    elif style == "Buzzcut":
+        cap = _spline([R(-0.215, -0.07), R(-0.225, -0.2), R(-0.12, -0.31), R(0, -0.335), R(0.12, -0.31), R(0.225, -0.2), R(0.215, -0.07),
+                       R(0.17, -0.13), R(0.1, -0.21), R(0, -0.225), R(-0.1, -0.21), R(-0.17, -0.13)], True, 6)
+        _shape(head, cap, hair, None, 0, alpha=200)
+    elif style == "Fade":
+        for sx in (-1, 1):
+            side = _spline([R(sx * 0.2, -0.07), R(sx * 0.225, -0.18), R(sx * 0.17, -0.26), R(sx * 0.15, -0.16), R(sx * 0.17, -0.09)], True, 6)
+            _shape(head, side, hair, None, 0, alpha=70)
+        top = _spline([R(-0.17, -0.14), R(-0.2, -0.25), R(-0.1, -0.34), R(0.05, -0.37), R(0.17, -0.32), R(0.2, -0.21), R(0.16, -0.15), R(0.1, -0.21),
+                       R(-0.02, -0.225), R(-0.12, -0.19)], True, 7)
+        hair_shape(top)
+        strands([[(-0.12, -0.26), (0.0, -0.33), (0.12, -0.3)]])
+    elif style in ("SlickBack", "Pompadour"):
+        if style == "Pompadour":
+            top = _spline([R(-0.2, -0.1), R(-0.22, -0.24), R(-0.1, -0.36), R(0.06, -0.47), R(0.2, -0.41), R(0.23, -0.27), R(0.2, -0.14), R(0.12, -0.2),
+                           R(0, -0.23), R(-0.12, -0.19)], True, 7)
+        else:
+            top = _spline([R(-0.21, -0.1), R(-0.235, -0.22), R(-0.14, -0.33), R(0, -0.375), R(0.14, -0.33), R(0.235, -0.22), R(0.21, -0.1), R(0.17, -0.17),
+                           R(0.08, -0.2), R(-0.08, -0.2), R(-0.17, -0.17)], True, 7)
+        hair_shape(top)
+        strands([[(-0.17, -0.2), (-0.05, -0.3), (0.12, -0.36)], [(-0.1, -0.17), (0.04, -0.27), (0.17, -0.3)], [(0.0, -0.2), (0.12, -0.27), (0.2, -0.24)]])
+    elif style == "Cornrows":
+        cap = _spline([R(-0.215, -0.07), R(-0.225, -0.2), R(-0.12, -0.31), R(0, -0.335), R(0.12, -0.31), R(0.225, -0.2), R(0.215, -0.07),
+                       R(0.17, -0.13), R(0.1, -0.21), R(0, -0.225), R(-0.1, -0.21), R(-0.17, -0.13)], True, 6)
+        _shape(head, cap, hair, None, 0, alpha=235)
+        strands([[(k * 0.06, -0.15), (k * 0.07, -0.24), (k * 0.05, -0.32)] for k in range(-3, 4)], w=max(2, lw), col=_shade(hair, 0.4), alpha=255)
+    elif style == "TopKnot":
+        for sx in (-1, 1):
+            side = _spline([R(sx * 0.2, -0.07), R(sx * 0.225, -0.18), R(sx * 0.17, -0.26), R(sx * 0.15, -0.16), R(sx * 0.17, -0.09)], True, 6)
+            _shape(head, side, hair, None, 0, alpha=90)
+        cap = _spline([R(-0.17, -0.14), R(-0.2, -0.25), R(-0.1, -0.33), R(0, -0.35), R(0.1, -0.33), R(0.2, -0.25), R(0.17, -0.14), R(0.1, -0.2), R(-0.1, -0.2)], True, 6)
+        hair_shape(cap)
+        kx, ky = R(0, -0.385)
+        pygame.draw.circle(head, hair, (int(kx), int(ky)), int(u * 0.055))
+        pygame.draw.circle(head, _shade(hair, 0.5), (int(kx), int(ky)), int(u * 0.055), lw)
+    elif style == "Pigtails":
+        cap = _spline([R(-0.215, -0.08), R(-0.235, -0.2), R(-0.14, -0.33), R(0, -0.365), R(0.14, -0.33), R(0.235, -0.2), R(0.215, -0.08), R(0.17, -0.14),
+                       R(0.08, -0.23), R(-0.05, -0.245), R(-0.14, -0.2)], True, 7)
+        hair_shape(cap)
+        strands([[(-0.15, -0.26), (-0.04, -0.33), (0.1, -0.33)]])
+        for sx in (-1, 1):
+            pygame.draw.circle(head, (230, 90, 120), (int(R(sx * 0.21, -0.1)[0]), int(R(sx * 0.21, -0.1)[1])), int(u * 0.02))
+    elif style in ("Short", "SidePart", "Shaggy", "Pixie"):
+        # faded sides, swept wavy top
+        for sx in (-1, 1):
+            side = _spline([R(sx * 0.2, -0.07), R(sx * 0.225, -0.18), R(sx * 0.17, -0.26), R(sx * 0.15, -0.16), R(sx * 0.17, -0.09)], True, 6)
+            _shape(head, side, hair, None, 0, alpha=150)
+        top_pts = _spline([R(-0.2, -0.12), R(-0.235, -0.22), R(-0.17, -0.32), R(-0.05, -0.375), R(0.1, -0.37), R(0.21, -0.31), R(0.215, -0.22), R(0.16, -0.18),
+                           R(0.1, -0.24), R(-0.02, -0.255), R(-0.12, -0.21)], True, 7)
+        hair_shape(top_pts)
+        strands([[(-0.16, -0.27), (-0.06, -0.33), (0.08, -0.34)], [(-0.12, -0.23), (0.0, -0.3), (0.14, -0.3)], [(0.0, -0.27), (0.1, -0.29), (0.17, -0.26)]])
+        if style == "SidePart":
+            pygame.draw.line(head, _shade(hair, 0.45), R(-0.09, -0.34), R(-0.06, -0.22), max(2, lw))
+        elif style == "Shaggy":
+            for k in range(5):
+                x = -0.17 + 0.085 * k
+                hair_shape([R(x - 0.04, -0.22), R(x + 0.005, -0.145 - 0.02 * (k % 2)), R(x + 0.045, -0.22)])
+        elif style == "Pixie":
+            hair_shape(_spline([R(-0.2, -0.2), R(-0.05, -0.27), R(0.15, -0.2), R(0.22, -0.12), R(0.1, -0.2), R(-0.05, -0.21), R(-0.17, -0.15)], True, 6))
+    elif style in ("Long", "Wavy", "Braids", "Dreads"):
+        for sx in (-1, 1):
+            curtain = _spline([R(0, -0.285), R(sx * 0.12, -0.275), R(sx * 0.215, -0.17), R(sx * 0.25, -0.04), R(sx * 0.31, 0.18), R(sx * 0.35, 0.42),
+                               R(sx * 0.27, 0.48), R(sx * 0.2, 0.4), R(sx * 0.2, 0.18), R(sx * 0.19, 0.03), R(sx * 0.15, -0.09), R(sx * 0.07, -0.2)], True, 6)
+            hair_shape(curtain)
+            strands([[(sx * 0.1, -0.27), (sx * 0.2, -0.12), (sx * 0.24, 0.1), (sx * 0.29, 0.38)], [(sx * 0.06, -0.24), (sx * 0.15, -0.08), (sx * 0.2, 0.15), (sx * 0.24, 0.4)]])
+        top_c = _spline([R(-0.22, -0.2), R(-0.14, -0.33), R(0, -0.36), R(0.14, -0.33), R(0.22, -0.2), R(0.1, -0.28), R(0, -0.285), R(-0.1, -0.28)], True, 6)
+        hair_shape(top_c)
+        for sx in (-1, 1):
+            if style == "Wavy":
+                strands([[(sx * (0.12 + 0.04 * k), -0.24 + 0.1 * j) for j in range(0, 7)] for k in range(2)] if False else
+                        [[(sx * (0.2 + 0.03 * math.sin(j * 1.6 + k)), -0.1 + 0.08 * j) for j in range(0, 6)] for k in range(3)], w=max(2, lw))
+            elif style == "Braids":
+                for j in range(0, 6):
+                    bx, by = R(sx * (0.27 + 0.01 * (j % 2)), 0.0 + 0.075 * j)
+                    pygame.draw.ellipse(head, hair, pygame.Rect(int(bx - u * 0.024), int(by - u * 0.02), int(u * 0.048), int(u * 0.04)))
+                    pygame.draw.ellipse(head, _shade(hair, 0.5), pygame.Rect(int(bx - u * 0.024), int(by - u * 0.02), int(u * 0.048), int(u * 0.04)), max(1, lw - 1))
+            elif style == "Dreads":
+                strands([[(sx * (0.15 + 0.035 * k), -0.2), (sx * (0.2 + 0.04 * k), 0.05), (sx * (0.23 + 0.04 * k), 0.4)] for k in range(3)], w=max(4, int(u * 0.02)), col=_shade(hair, 0.65), alpha=255)
+    elif style == "Ponytail":
+        cap = _spline([R(-0.215, -0.08), R(-0.235, -0.2), R(-0.14, -0.33), R(0, -0.365), R(0.14, -0.33), R(0.235, -0.2), R(0.215, -0.08), R(0.17, -0.14),
+                       R(0.08, -0.23), R(-0.05, -0.245), R(-0.14, -0.2)], True, 7)
+        hair_shape(cap)
+        strands([[(-0.15, -0.26), (-0.04, -0.33), (0.1, -0.33)], [(-0.1, -0.22), (0.02, -0.3), (0.16, -0.27)]])
+        pygame.draw.circle(head, (230, 90, 120), (int(R(0.2, -0.13)[0]), int(R(0.2, -0.13)[1])), int(u * 0.018))
+    elif style == "Bob":
+        for sx in (-1, 1):
+            curtain = _spline([R(0, -0.285), R(sx * 0.12, -0.275), R(sx * 0.215, -0.17), R(sx * 0.25, -0.04), R(sx * 0.28, 0.1), R(sx * 0.27, 0.19),
+                               R(sx * 0.18, 0.2), R(sx * 0.19, 0.06), R(sx * 0.15, -0.09), R(sx * 0.07, -0.2)], True, 6)
+            hair_shape(curtain)
+            strands([[(sx * 0.1, -0.27), (sx * 0.2, -0.1), (sx * 0.24, 0.12)]])
+        fringe = _spline([R(-0.22, -0.2), R(-0.14, -0.33), R(0, -0.36), R(0.14, -0.33), R(0.22, -0.2), R(0.12, -0.22), R(0, -0.2), R(-0.12, -0.22)], True, 6)
+        hair_shape(fringe)
+    elif style == "Afro":
+        rr = u * 0.085
+        for a in range(0, 181, 18):
+            x = math.cos(math.radians(a)) * u * 0.27
+            y = -math.sin(math.radians(a)) * (0.34 * sc) - 0.0 * u
+            pygame.draw.circle(head, hair, (int(cx + x), int(cy + y - 0.03 * u)), int(rr))
+            pygame.draw.circle(head, _shade(hair, 0.5), (int(cx + x), int(cy + y - 0.03 * u)), int(rr), lw)
+        for k in range(6):
+            x = -0.2 + 0.4 * k / 5
+            pygame.draw.circle(head, hair, (int(R(x, -0.285)[0]), int(R(x, -0.285)[1])), int(rr * 0.9))
+        strands([[(-0.15, -0.34), (-0.05, -0.38)], [(0.04, -0.38), (0.15, -0.33)]], col=hair_hi, alpha=110)
+    elif style == "Bun":
+        cap = _spline([R(-0.215, -0.08), R(-0.235, -0.2), R(-0.14, -0.33), R(0, -0.365), R(0.14, -0.33), R(0.235, -0.2), R(0.215, -0.08), R(0.17, -0.14),
+                       R(0.08, -0.23), R(-0.05, -0.245), R(-0.14, -0.2)], True, 7)
+        hair_shape(cap)
+        bx, by = R(0, -0.42)
+        pygame.draw.circle(head, hair, (int(bx), int(by)), int(u * 0.07))
+        pygame.draw.circle(head, _shade(hair, 0.5), (int(bx), int(by)), int(u * 0.07), lw)
+        strands([[(-0.15, -0.26), (-0.04, -0.33), (0.1, -0.33)]])
+    elif style == "Undercut":
+        for sx in (-1, 1):
+            side = _spline([R(sx * 0.2, -0.07), R(sx * 0.225, -0.18), R(sx * 0.17, -0.26), R(sx * 0.15, -0.16), R(sx * 0.17, -0.09)], True, 6)
+            _shape(head, side, hair, None, 0, alpha=55)
+        top_pts = _spline([R(-0.17, -0.16), R(-0.2, -0.26), R(-0.12, -0.36), R(0.02, -0.41), R(0.14, -0.37), R(0.19, -0.28), R(0.17, -0.18),
+                           R(0.1, -0.22), R(-0.02, -0.235), R(-0.1, -0.2)], True, 7)
+        hair_shape(top_pts)
+        strands([[(-0.12, -0.28), (0.0, -0.36), (0.12, -0.33)]])
+    elif style == "Spiky":
+        base = _spline([R(-0.215, -0.08), R(-0.235, -0.2), R(-0.13, -0.3), R(0, -0.32), R(0.13, -0.3), R(0.235, -0.2), R(0.215, -0.08), R(0.17, -0.15),
+                        R(0.0, -0.2), R(-0.17, -0.15)], True, 6)
+        hair_shape(base)
+        for i in range(6):
+            t = i / 5
+            bx = -0.2 + 0.4 * t
+            by = -0.28 - 0.04 * math.sin(math.pi * t)
+            tip = (bx * 1.35 + (t - 0.5) * 0.05, by - 0.11 - 0.04 * math.sin(math.pi * t))
+            pts = [R(bx - 0.05, by + 0.02), R(*tip), R(bx + 0.05, by + 0.02)]
+            hair_shape(pts)
+    elif style == "Mohawk":
+        for sx in (-1, 1):
+            side = _spline([R(sx * 0.2, -0.07), R(sx * 0.225, -0.18), R(sx * 0.14, -0.26), R(sx * 0.13, -0.16), R(sx * 0.17, -0.09)], True, 6)
+            _shape(head, side, hair, None, 0, alpha=110)
+        fin = _spline([R(-0.055, -0.22), R(-0.07, -0.34), R(-0.045, -0.47), R(0.0, -0.52), R(0.05, -0.46), R(0.07, -0.33), R(0.055, -0.22), R(0, -0.25)], True, 6)
+        hair_shape(fin)
+        strands([[(0, -0.25), (0.0, -0.37), (0.0, -0.49)]], col=hair_hi, alpha=140)
+    elif style == "Curly":
+        rr = u * 0.062
+        for a in range(0, 181, 22):
+            x = math.cos(math.radians(a)) * u * 0.232
+            y = -math.sin(math.radians(a)) * (0.3 * sc) - 0.0 * u
+            pygame.draw.circle(head, hair, (int(cx + x), int(cy + y - 0.03 * u)), int(rr))
+            pygame.draw.circle(head, _shade(hair, 0.5), (int(cx + x), int(cy + y - 0.03 * u)), int(rr), lw)
+        for k in range(7):
+            x = -0.19 + 0.38 * k / 6
+            y = -0.255 - 0.015 * math.sin(math.pi * k / 6)
+            pygame.draw.circle(head, hair, (int(R(x, y)[0]), int(R(x, y)[1])), int(rr * 0.95))
+            pygame.draw.circle(head, _shade(hair, 0.5), (int(R(x, y)[0]), int(R(x, y)[1])), int(rr * 0.95), lw)
+        strands([[(-0.15, -0.3), (-0.05, -0.34)], [(0.04, -0.34), (0.15, -0.29)]], col=hair_hi, alpha=110)
+
+    # ---------------- assemble with a slight head tilt ----------------
+    angle = ((seed * 7) % 9 - 4) * 0.9
+    pivot = (cx, cy + 0.36 * u)
+    rot = pygame.transform.rotate(head, angle)
+    # keep the neck pivot fixed after rotation
+    vx, vy = (W / 2 - pivot[0]), (H / 2 - pivot[1])
+    rad = math.radians(-angle)
+    nx = vx * math.cos(rad) - vy * math.sin(rad)
+    ny = vx * math.sin(rad) + vy * math.cos(rad)
+    center = (pivot[0] + nx, pivot[1] + ny)
+    out = pygame.Surface((W, H), pygame.SRCALPHA)
+    out.blit(body, (0, 0))
+    out.blit(rot, rot.get_rect(center=center))
+    return pygame.transform.smoothscale(out, (w, h))
+
+def male_like(gender):
+    return gender != "Female"
+
+def draw_avatar(screen, rect, gender, hair_colour, hairstyle, skin_tone, facial_hair="None", age=None, mood=60, feat=None):
+    """Draws a stylised illustrated avatar inside `rect`. `age` changes the
+    face shape, clothes, hair colour and wrinkles; `mood` (0-100) changes the
+    expression."""
+    mood_bucket = 0 if mood < 35 else (1 if mood < 60 else 2)
+    age_key = None if age is None else (age if age < 7 else (7 if age < 13 else (13 if age < 20 else (20 if age < 45 else (age // 5 * 5 if age < 70 else 70)))))
+    seed = (sum(hair_colour) + sum(skin_tone) + len(hairstyle)) % 97
+    key = (rect.w, rect.h, gender, tuple(hair_colour), hairstyle, tuple(skin_tone), facial_hair, age_key, mood_bucket, tuple(sorted((feat or {}).items())))
+    surf = _cache.get(key)
+    if surf is None:
+        if len(_cache) > 60:
+            _cache.clear()
+        surf = _render(rect.w, rect.h, gender, tuple(hair_colour), hairstyle, tuple(skin_tone), facial_hair, age, mood, seed, feat)
+        _cache[key] = surf
+    screen.blit(surf, rect.topleft)

@@ -4,24 +4,21 @@ import asyncio
 import pygame
 from constants import (SCREEN_WIDTH, SCREEN_HEIGHT, WHITE, ACCENT, INK, MUTED, OUTLINE, SKIN_TONES,
                        font, small_font, title_font, draw_text, draw_rounded_rect)
-from avatar import draw_avatar, EYE_COLOURS, EYE_SHAPES, LIP_STYLES, BROW_STYLES, OUTFITS
-
-HAIR_STYLES_M = ["Bald", "Buzzcut", "Short", "Undercut", "Spiky", "Mohawk", "Curly", "Afro", "Long", "Ponytail", "Bun", "Bob"]
-HAIR_STYLES_F = ["Long", "Ponytail", "Bun", "Bob", "Curly", "Afro", "Short", "Undercut", "Spiky", "Buzzcut", "Mohawk", "Bald"]
-FACIAL = ["None", "Stubble", "Moustache", "Goatee", "Beard", "Handlebar"]
+from avatar import (draw_avatar, EYE_COLOURS, OUTFITS, HAIR_STYLES_M, HAIR_STYLES_F, FACIAL_STYLES as FACIAL, TOPS, HATS, GLASSES, EARRINGS,
+                    style_of, facial_of, _OUTFIT_COLOURS)
 HAIR_COLOURS = [("Black", (25, 22, 22)), ("Dark brown", (60, 40, 30)), ("Brown", (96, 62, 38)), ("Chestnut", (120, 72, 40)),
                 ("Auburn", (150, 55, 32)), ("Ginger", (195, 90, 40)), ("Dark blonde", (170, 128, 60)), ("Blonde", (222, 190, 110)),
                 ("Platinum", (238, 228, 200)), ("Grey", (160, 160, 165)), ("White", (240, 240, 245)), ("Pink", (232, 120, 170)),
                 ("Blue", (60, 110, 200)), ("Teal", (50, 170, 160)), ("Purple", (130, 80, 190)), ("Green", (70, 160, 90))]
-TABS = ["Hair", "Face", "Style"]
+TABS = ["Hair", "Face", "Clothes", "Extras"]
 
 def default_look(gender="Female"):
     return {"hair": (60, 40, 30), "style": "Long" if gender == "Female" else "Short", "skin": SKIN_TONES[2],
-            "facial": "None", "feat": {"eyes": "Brown", "eye_shape": "Almond", "lips": "Natural", "brows": "Natural", "outfit": None}}
+            "facial": "None", "feat": {"eyes": "Brown", "outfit": None, "top": "Tee" if gender == "Female" else "Hoodie"}}
 
 def feat_of(look):
     f = look.get("feat") or {}
-    return {k: v for k, v in f.items() if v is not None}
+    return {k: v for k, v in f.items() if v is not None and k in ("eyes", "outfit", "top", "hat", "glasses", "earrings")}
 
 def _label(screen, text, x, y):
     draw_text(screen, text, small_font, MUTED, x, y)
@@ -57,25 +54,25 @@ def draw_editor(screen, rect, mouse, look, gender, ed):
     hits = []
     tx = rect.x
     for i, name in enumerate(TABS):
-        r = pygame.Rect(tx, rect.y, 70, 26)
+        r = pygame.Rect(tx, rect.y, 74, 26)
         on = ed["tab"] == i
         draw_text(screen, name, font, ACCENT if on else MUTED, r.centerx, r.centery, centre=True)
         if on:
             pygame.draw.line(screen, ACCENT, (r.x + 8, r.bottom), (r.right - 8, r.bottom), 3)
         hits.append(("tab", i, r))
-        tx += 78
+        tx += 80
     y = rect.y + 40
     feat = look["feat"]
     if ed["tab"] == 0:
         _label(screen, "Hairstyle", rect.x, y)
         styles = HAIR_STYLES_F if gender == "Female" else HAIR_STYLES_M
-        y = _chips(screen, hits, "style", styles, look["style"], rect.x, y + 18, rect.width, mouse, per_row=5)
+        y = _chips(screen, hits, "style", styles, style_of(look["style"], gender), rect.x, y + 18, rect.width, mouse, per_row=5)
         _label(screen, "Hair colour", rect.x, y + 6)
         cur = next((n for n, c in HAIR_COLOURS if tuple(c) == tuple(look["hair"])), None)
         y = _swatches(screen, hits, "hair", HAIR_COLOURS, cur, rect.x, y + 26, mouse, per_row=8)
         if gender == "Male":
             _label(screen, "Facial hair", rect.x, y + 4)
-            _chips(screen, hits, "facial", FACIAL, look["facial"], rect.x, y + 22, rect.width, mouse, per_row=5, cw=84)
+            _chips(screen, hits, "facial", FACIAL, facial_of(look["facial"]), rect.x, y + 22, rect.width, mouse, per_row=5, cw=84)
         else:
             _label(screen, "Facial hair is only offered for male characters.", rect.x, y + 4)
     elif ed["tab"] == 1:
@@ -84,19 +81,20 @@ def draw_editor(screen, rect, mouse, look, gender, ed):
                       str(SKIN_TONES.index(tuple(look["skin"]))) if tuple(look["skin"]) in SKIN_TONES else None,
                       rect.x, y + 20, mouse, per_row=8)
         _label(screen, "Eye colour", rect.x, y + 4)
-        y = _swatches(screen, hits, "eyes", [(n, c[0]) for n, c in EYE_COLOURS.items()], feat.get("eyes"), rect.x, y + 24, mouse, per_row=8)
-        _label(screen, "Eye shape", rect.x, y + 2)
-        y = _chips(screen, hits, "eye_shape", list(EYE_SHAPES), feat.get("eye_shape"), rect.x, y + 20, rect.width, mouse, per_row=5, cw=84)
-        _label(screen, "Eyebrows", rect.x, y + 2)
-        y = _chips(screen, hits, "brows", list(BROW_STYLES), feat.get("brows"), rect.x, y + 20, rect.width, mouse, per_row=5, cw=84)
-        _label(screen, "Lips", rect.x, y + 2)
-        _chips(screen, hits, "lips", list(LIP_STYLES), feat.get("lips"), rect.x, y + 20, rect.width, mouse, per_row=5, cw=84)
+        _swatches(screen, hits, "eyes", list(EYE_COLOURS.items()), feat.get("eyes"), rect.x, y + 24, mouse, per_row=8)
+    elif ed["tab"] == 2:
+        _label(screen, "Top", rect.x, y)
+        y = _chips(screen, hits, "top", TOPS, feat.get("top") or "Tee", rect.x, y + 20, rect.width, mouse, per_row=5, cw=84)
+        _label(screen, "Colour", rect.x, y + 6)
+        sel = None if feat.get("outfit") is None else str(feat["outfit"] % len(_OUTFIT_COLOURS))
+        _swatches(screen, hits, "outfit", [(str(i), c) for i, c in enumerate(_OUTFIT_COLOURS)], sel, rect.x, y + 26, mouse, per_row=10)
     else:
-        _label(screen, "Clothes", rect.x, y)
-        names = OUTFITS["Female" if gender == "Female" else "Male"]
-        chips = ["Auto"] + [names[i] if i < len(names) else f"Outfit {i + 1}" for i in range(8)]
-        sel = "Auto" if feat.get("outfit") is None else chips[(feat["outfit"] % 8) + 1]
-        _chips(screen, hits, "outfit", chips, sel, rect.x, y + 20, rect.width, mouse, per_row=5, cw=84)
+        _label(screen, "Hat", rect.x, y)
+        y = _chips(screen, hits, "hat", HATS, feat.get("hat") or "None", rect.x, y + 20, rect.width, mouse, per_row=5, cw=84)
+        _label(screen, "Glasses", rect.x, y + 6)
+        y = _chips(screen, hits, "glasses", GLASSES, feat.get("glasses") or "None", rect.x, y + 26, rect.width, mouse, per_row=5, cw=84)
+        _label(screen, "Earrings", rect.x, y + 6)
+        _chips(screen, hits, "earrings", EARRINGS, feat.get("earrings") or "None", rect.x, y + 26, rect.width, mouse, per_row=5, cw=84)
     return hits
 
 def click_editor(mx, my, hits, look, gender, ed):
@@ -114,12 +112,12 @@ def click_editor(mx, my, hits, look, gender, ed):
             look["facial"] = val
         elif kind == "skin":
             look["skin"] = SKIN_TONES[int(val)]
-        elif kind in ("eyes", "eye_shape", "brows", "lips"):
+        elif kind == "eyes":
             f[kind] = val
         elif kind == "outfit":
-            names = OUTFITS["Female" if gender == "Female" else "Male"]
-            chips = ["Auto"] + [names[i] if i < len(names) else f"Outfit {i + 1}" for i in range(8)]
-            f["outfit"] = None if val == "Auto" else chips.index(val) - 1
+            f["outfit"] = int(val)
+        elif kind in ("top", "hat", "glasses", "earrings"):
+            f[kind] = val
         return True
     return False
 
@@ -162,3 +160,17 @@ async def appearance_window(screen, look, gender, age, name):
         pygame.display.flip()
         clock.tick(60)
         await asyncio.sleep(0)
+
+
+def randomise(gender):
+    """A fully random look for the given gender."""
+    import random
+    from constants import SKIN_TONES as ST
+    styles = HAIR_STYLES_F if gender == "Female" else HAIR_STYLES_M
+    look = {"hair": random.choice(HAIR_COLOURS)[1], "style": random.choice(styles), "skin": random.choice(ST),
+            "facial": random.choice(FACIAL) if (gender == "Male" and random.random() < 0.5) else "None",
+            "feat": {"eyes": random.choice(list(EYE_COLOURS)), "outfit": random.randrange(len(_OUTFIT_COLOURS)),
+                     "top": random.choice([t for t in TOPS if gender == "Female" or t != "Dress"]),
+                     "hat": random.choice(HATS + ["None"] * 6), "glasses": random.choice(GLASSES + ["None"] * 4),
+                     "earrings": random.choice(EARRINGS + ["None"] * (1 if gender == "Female" else 6))}}
+    return look
